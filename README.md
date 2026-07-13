@@ -29,16 +29,29 @@ except `api.anthropic.com`. Clone it, run it, and you see *your* usage against *
 
 Requires **Node 18+** and a logged-in **Claude Code**.
 
+**Option A — install the extension** (no build step). Grab the `.vsix` from the
+[latest release](https://github.com/panditfloki/live-claude-usage-ui/releases/latest):
+
+```bash
+code --install-extension claude-usage-meter-0.9.0.vsix
+# or: cursor --install-extension … · antigravity-ide --install-extension …
+```
+
+Or from the IDE: **Extensions → ⋯ → Install from VSIX…**
+
+**Option B — run the web app**, no IDE at all:
+
 ```bash
 git clone https://github.com/panditfloki/live-claude-usage-ui
 cd live-claude-usage-ui
-
-# Option A — web app, no IDE needed
 node server.js          # → http://localhost:4317
+```
 
-# Option B — install as a VS Code / Cursor / Antigravity extension
+**Build the extension yourself** (if you'd rather not trust a binary):
+
+```bash
 npx @vscode/vsce package --allow-missing-repository
-code --install-extension claude-usage-meter-*.vsix     # or: cursor / antigravity-ide
+code --install-extension claude-usage-meter-*.vsix
 ```
 
 Optionally `cp plan.example.json plan.json` and fill in your plan cost and renewal date —
