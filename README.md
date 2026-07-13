@@ -125,8 +125,8 @@ media/dashboard.html   one page, two hosts
 
 ## Licence & contact
 
-MIT — © 2026 [dydxfx Tech](https://dydxfx.com). Not affiliated with Anthropic.
+MIT — © 2026 [dydxfx](https://dydxfx.com). Not affiliated with Anthropic.
 
-Built by **Pandit Floki** at **dydxfx Tech** · [dydxfx.com](https://dydxfx.com) · <pandit@dydxfx.com>
+Built by **Pandit Floki** at **dydxfx** · [dydxfx.com](https://dydxfx.com) · <pandit@dydxfx.com>
 
 Issues and PRs welcome on [GitHub](https://github.com/panditfloki/live-claude-usage-ui/issues).
