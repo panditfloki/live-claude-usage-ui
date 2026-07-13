@@ -1,0 +1,32 @@
+{
+  "_comment": [
+    "Copy this to plan.json and fill in your own values. plan.json is gitignored.",
+    "",
+    "These are the ONLY figures Mātrā cannot fetch. The Claude Code OAuth token carries",
+    "scopes user:profile, user:inference, user:sessions:claude_code, user:mcp_servers,",
+    "user:file_upload — and no billing scope. /api/oauth/profile exposes plan tier and",
+    "subscription status but no money; /v1/organizations/spend_limits rejects GET (405,",
+    "admin-only). Credit balance and invoice history live behind the web billing UI.",
+    "",
+    "Anything set here is rendered on a DASHED tile marked 'declared', never as if it were",
+    "live — a number you must remember to update will go stale, and a dashboard that hides",
+    "that is a dashboard that lies. Set a field to null to hide its tile.",
+    "",
+    "Everything else needs no config and is fetched live: plan tier, subscription status,",
+    "billing type, session/weekly quota percentages, reset times, and the usage-credit",
+    "object (balance / used / cap / auto-reload) if you enable credits.",
+    "",
+    "Delete this file entirely and every declared tile simply disappears.",
+    "",
+    "priceUsd      — what your plan costs.",
+    "billingPeriod — 'month' or 'year'.",
+    "renewsOn      — subscription renewal date, YYYY-MM-DD.",
+    "creditBalance — billing credit balance in USD.",
+    "spentToDate   — lifetime spend, if you want it on the deck."
+  ],
+  "priceUsd": null,
+  "billingPeriod": "month",
+  "renewsOn": null,
+  "creditBalance": null,
+  "spentToDate": null
+}

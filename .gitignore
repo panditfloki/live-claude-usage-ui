@@ -1,0 +1,16 @@
+# Personal figures — plan cost, credit balance, renewal date.
+# Everything the API cannot see lives here, which is precisely why it is private.
+# Copy plan.example.json -> plan.json and fill it in; the app runs fine without it
+# (the declared tiles simply disappear).
+plan.json
+
+# Workspace glue: an @-import pointing into a private Obsidian vault.
+# Machine-specific, not part of the app.
+CLAUDE.md
+
+# Build artifacts — the .vsix is produced by `npm run package`, attach it to a
+# GitHub Release rather than committing a binary on every version bump.
+*.vsix
+node_modules/
+
+.DS_Store

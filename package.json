@@ -1,0 +1,57 @@
+{
+  "name": "claude-usage-meter",
+  "displayName": "Mātrā — Claude Usage",
+  "description": "Live Claude Code usage — burn rate in the status bar, full dashboard in a panel.",
+  "version": "0.8.0",
+  "publisher": "panditji",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/panditfloki/live-claude-usage-ui.git"
+  },
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeUsage.open",
+        "title": "Claude Usage: Open Dashboard"
+      },
+      {
+        "command": "claudeUsage.refresh",
+        "title": "Claude Usage: Refresh Now"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Usage Meter",
+      "properties": {
+        "claudeUsage.statusBar.metric": {
+          "type": "string",
+          "enum": ["quota", "cost", "today", "total"],
+          "default": "quota",
+          "enumDescriptions": [
+            "Real session quota % and reset countdown (falls back to cost if unavailable)",
+            "Cost of the current 5-hour window (estimated)",
+            "Cost over the rolling last 24 hours",
+            "All-time cost"
+          ],
+          "description": "Which figure the status bar shows."
+        },
+        "claudeUsage.statusBar.show": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the live burn counter in the status bar."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "dev": "node server.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0"
+  }
+}

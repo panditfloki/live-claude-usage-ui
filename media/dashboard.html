@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mātrā — Claude usage</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1117'/%3E%3Cpath d='M13 45a19 19 0 0 1 38 0' fill='none' stroke='%2326303d' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M13 45a19 19 0 0 1 13-18' fill='none' stroke='%234a8bf0' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M32 45 L43 30' stroke='%23e6edf3' stroke-width='3.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='45' r='4' fill='%23e6edf3'/%3E%3C/svg%3E">
+<style>
+  /* One stylesheet, two hosts. The --vscode-* vars resolve inside the IDE panel;
+     in a plain browser they're undefined and the fallbacks take over. */
+  :root {
+    --bg:     var(--vscode-editor-background, #0d1117);
+    --panel:  var(--vscode-editorWidget-background, #161b22);
+    --tile:   var(--vscode-editor-background, #0d1117);
+    --line:   var(--vscode-editorWidget-border, #26303d);
+    --fg:     var(--vscode-foreground, #e6edf3);
+    --dim:    var(--vscode-descriptionForeground, #8b949e);
+    --accent: var(--vscode-charts-blue, #4a8bf0);
+    --opus: #d29922; --fable: #a371f7; --sonnet: #58a6ff; --haiku: #3fb950;
+    --warn: var(--vscode-errorForeground, #f85149);
+    --ease: cubic-bezier(.22,.61,.36,1);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: var(--vscode-editor-background, #f6f8fa);
+      --panel: var(--vscode-editorWidget-background, #fff);
+      --tile: var(--vscode-editor-background, #f6f8fa);
+      --line: var(--vscode-editorWidget-border, #d8dee4);
+      --fg: var(--vscode-foreground, #1f2328);
+      --dim: var(--vscode-descriptionForeground, #59636e);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 20px; max-width: 1200px;
+    background: var(--bg); color: var(--fg);
+    font: 13.5px/1.5 var(--vscode-font-family, ui-sans-serif, -apple-system, system-ui, sans-serif);
+  }
+
+  /* Sticky: the range control governs everything below it, so it has to stay
+     reachable while you're looking at the thing it changes. */
+  header {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin: -20px -20px 16px; padding: 14px 20px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid transparent;
+    transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+  }
+  /* Only assert a border once you've actually scrolled — no line at rest. */
+  header.stuck {
+    border-bottom-color: var(--line);
+    box-shadow: 0 4px 18px rgba(0,0,0,.18);
+  }
+  .brand { display: flex; align-items: baseline; gap: 9px; }
+  h1 { font-size: 19px; margin: 0; letter-spacing: -.02em; }
+  .tag { font-size: 11.5px; color: var(--dim); }
+  .live { font-size: 11px; color: var(--haiku); }
+  .live::before { content: "● "; }
+  .live.stale { color: var(--dim); }
+
+  /* Range control */
+  .range { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tabs { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .tabs button {
+    background: none; border: 0; color: var(--dim); cursor: pointer;
+    font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px;
+    transition: background .2s var(--ease), color .2s var(--ease);
+  }
+  .tabs button:hover { color: var(--fg); }
+  .tabs button.on { background: var(--accent); color: #fff; }
+  .dates { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--dim); }
+  .dates input {
+    background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 7px; font: inherit; font-size: 12px;
+    color-scheme: dark light;
+  }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 13px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px;
+    animation: rise .45s var(--ease) both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  .card h2 {
+    font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--dim); margin: 0 0 11px; display: flex; align-items: center; gap: 8px;
+  }
+  .card h2 .r { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; }
+  .metric { font-size: 28px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--dim); font-size: 11.5px; margin-top: 3px; }
+  .verdict { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--dim); }
+  .wide { grid-column: 1 / -1; }
+  .pill { display:inline-block; padding:1px 7px; border-radius:999px; font-size:10.5px; font-weight:600; border:1px solid currentColor; }
+  .pill.est { color: var(--warn); }
+  .pill.real { color: var(--haiku); }
+
+  .row { display: flex; align-items: center; gap: 9px; margin: 6px 0; font-size: 12px; }
+  .row .name { flex: 0 0 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .val { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--dim); }
+  .bar { flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 3px; width: 0; transition: width .55s var(--ease); }
+
+  /* Plan quota — the only server-side truth on this page. */
+  .quota { display: grid; gap: 15px; }
+  .q { display: grid; grid-template-columns: 190px 1fr 88px; align-items: center; gap: 15px; }
+  .q .lab { font-size: 12.5px; }
+  .q .lab small { display: block; color: var(--dim); font-size: 11px; }
+  .q .track { height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
+  .q .track > i {
+    display: block; height: 100%; border-radius: 5px; background: var(--accent);
+    width: 0; transition: width .8s var(--ease);
+  }
+  .q .pct { text-align: right; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .q.warn .track > i { background: var(--warn); }
+  .q.warn .pct { color: var(--warn); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 9px; }
+  .tile { background: var(--tile); border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; }
+  .tile b { display: block; font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile span { color: var(--dim); font-size: 10.5px; }
+  /* A tile whose value the API cannot see — hand-declared, and marked as such. */
+  .tile.declared { border-style: dashed; }
+  .tile.declared em { font-style: normal; color: var(--warn); font-size: 9px; letter-spacing: .04em; }
+  /* KPI row sits above the fold; give it a touch more presence. */
+  .card.kpi .metric { font-size: 31px; }
+
+  /* Top deck — plan identity and price, before anything else. */
+  .deck { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+  .deck-l { min-width: 190px; }
+  .deck-plan { font-size: 23px; font-weight: 680; letter-spacing: -.02em; }
+  .deck-blurb { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .deck-r { display: flex; gap: 9px; flex: 1; flex-wrap: wrap; justify-content: flex-end; }
+  .deck-r .tile { min-width: 118px; }
+
+  /* Stacked per-day chart */
+  .chart { position: relative; height: 190px; display: flex; align-items: flex-end; gap: 4px; padding-left: 46px; }
+  .yaxis { position: absolute; left: 0; top: 0; bottom: 22px; width: 44px; font-size: 10px; color: var(--dim); }
+  .yaxis span { position: absolute; right: 4px; transform: translateY(-50%); font-variant-numeric: tabular-nums; }
+  .gl { position: absolute; left: 46px; right: 0; border-top: 1px dashed var(--line); opacity: .5; }
+  .col { flex: 1; display: flex; flex-direction: column-reverse; justify-content: flex-start;
+         min-width: 6px; cursor: pointer; position: relative; height: 100%; }
+  .col .stack { display: flex; flex-direction: column-reverse; width: 100%;
+                transform-origin: bottom; animation: grow .5s var(--ease) both; }
+  @keyframes grow { from { transform: scaleY(0); opacity: .4; } }
+  .col .seg { width: 100%; transition: filter .15s var(--ease); }
+  .col:hover .seg { filter: brightness(1.35); }
+  .col .lbl { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
+              font-size: 9.5px; color: var(--dim); white-space: nowrap; }
+  .chart-wrap { padding-bottom: 24px; }
+
+  #tip {
+    position: fixed; z-index: 50; pointer-events: none; opacity: 0;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 11px; font-size: 12px; box-shadow: 0 8px 26px rgba(0,0,0,.4);
+    transition: opacity .12s var(--ease);
+  }
+  #tip.on { opacity: 1; }
+  #tip .d { font-weight: 650; margin-bottom: 6px; }
+  #tip table { border-collapse: collapse; }
+  #tip td { padding: 1px 0; font-variant-numeric: tabular-nums; }
+  #tip td.m { padding-right: 12px; }
+  #tip td.t { text-align: right; padding-right: 10px; color: var(--dim); }
+  #tip td.c { text-align: right; font-weight: 600; }
+  #tip .tot { border-top: 1px solid var(--line); margin-top: 5px; padding-top: 5px; }
+
+  .heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 12px); gap: 3px; overflow-x: auto; padding-bottom: 3px; }
+  .heat > i { width: 12px; height: 12px; border-radius: 2px; background: var(--line); cursor: pointer; }
+  .heat > i:hover { outline: 1px solid var(--fg); }
+
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .tbl th, .tbl td { text-align: right; padding: 5px 0; font-variant-numeric: tabular-nums; }
+  .tbl th:first-child, .tbl td:first-child { text-align: left; }
+  .tbl th { color: var(--dim); font-weight: 500; font-size: 10.5px; border-bottom: 1px solid var(--line); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; }
+  footer { margin-top: 16px; color: var(--dim); font-size: 11px; }
+  .empty { color: var(--dim); font-size: 12px; padding: 18px 0; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>Mātrā</h1>
+    <span class="tag">Claude usage</span>
+  </div>
+  <span class="live" id="status">connecting…</span>
+  <div class="range">
+    <div class="tabs" id="tabs">
+      <button data-r="all">All</button>
+      <button data-r="30">30d</button>
+      <button data-r="7">7d</button>
+      <button data-r="custom">Custom</button>
+    </div>
+    <div class="dates">
+      <input type="date" id="from"> <span>→</span> <input type="date" id="to">
+    </div>
+  </div>
+</header>
+
+<div class="grid">
+  <!-- Top deck: what you're on, and what it costs. -->
+  <div class="card wide deck">
+    <div class="deck-l">
+      <div class="deck-plan" id="deckPlan">—</div>
+      <div class="deck-blurb" id="deckBlurb">—</div>
+    </div>
+    <div class="deck-r" id="deckTiles"></div>
+  </div>
+
+  <!-- KPIs. Fixed windows — they do NOT move when the range tabs change. -->
+  <div class="card kpi">
+    <h2>Local 5-hour window <span class="pill est">estimated</span></h2>
+    <div class="metric" id="blockCost">—</div>
+    <div class="sub" id="blockSub">no activity</div>
+    <div class="verdict">Reconstructed from transcript timestamps — a different thing from the real session % below.</div>
+  </div>
+
+  <div class="card kpi">
+    <h2>Last 24 hours <span class="r">fixed</span></h2>
+    <div class="metric" id="dayCost">—</div>
+    <div class="sub" id="daySub">—</div>
+    <div class="verdict" id="dayVerdict">—</div>
+  </div>
+
+  <div class="card kpi">
+    <h2>All time <span class="r">fixed</span></h2>
+    <div class="metric" id="allCost">—</div>
+    <div class="sub" id="allSub">—</div>
+    <div class="verdict" id="allVerdict">—</div>
+  </div>
+
+  <div class="card wide">
+    <h2>Plan usage limits <span class="pill real" id="planPill">—</span>
+      <span class="r" id="quotaAge"></span></h2>
+    <div class="quota" id="quota"></div>
+    <div class="verdict" id="quotaVerdict">—</div>
+  </div>
+
+  <div class="card wide">
+    <h2>Overview <span class="r" id="ovRange"></span></h2>
+    <div class="tiles" id="tiles"></div>
+  </div>
+
+  <div class="card wide">
+    <h2>Tokens &amp; cost per day <span class="r" id="chartRange"></span></h2>
+    <div class="chart-wrap"><div class="chart" id="chart"></div></div>
+    <div class="sub" id="chartSub">—</div>
+  </div>
+
+  <div class="card wide">
+    <h2>Models <span class="r" id="modelRange"></span></h2>
+    <table class="tbl">
+      <thead><tr><th>Model</th><th>Turns</th><th>In</th><th>Out</th><th>Share</th><th>Cost</th></tr></thead>
+      <tbody id="models"></tbody>
+    </table>
+  </div>
+
+  <div class="card"><h2>By project <span class="r" id="projRange"></span></h2><div id="projects"></div></div>
+
+  <div class="card">
+    <h2>Token mix <span class="r" id="mixRange"></span></h2>
+    <div id="mix"></div>
+    <div class="verdict" id="cacheVerdict">—</div>
+  </div>
+
+  <div class="card wide">
+    <h2>Activity — last 26 weeks <span class="r">click a day to focus it</span></h2>
+    <div class="heat" id="heat"></div>
+    <div class="sub" id="heatSub">—</div>
+  </div>
+</div>
+
+<div id="tip"></div>
+<footer id="foot">—</footer>
+
+<script>
+// ---------------------------------------------------------------------------
+// Host detection: the same file runs as a VS Code webview and as a plain page.
+// ---------------------------------------------------------------------------
+const vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
+
+const el = id => document.getElementById(id);
+const usd = n => '$' + (n < 100 ? n.toFixed(2) : Math.round(n).toLocaleString());
+const num = n => n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M'
+               : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(Math.round(n));
+const hourLbl = h => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
+const MODEL_HUE = { opus:'var(--opus)', fable:'var(--fable)', sonnet:'var(--sonnet)', haiku:'var(--haiku)' };
+const hue = m => MODEL_HUE[Object.keys(MODEL_HUE).find(k => m.includes(k))] || 'var(--dim)';
+const short = m => m.replace('claude-', '').replace(/-\d{8}$/, '');
+
+// Project keys are home-relative paths. Head-truncating them renders every row
+// identically when they share a root — the distinguishing part is the TAIL, so keep it.
+function projLabel(p) {
+  const parts = p.split('/').filter(Boolean);
+  if (parts.length <= 2) return p;
+  // Keep BOTH ends: the root disambiguates same-named folders under different
+  // trees (two "transformer-app"s collide without it), the tail names the project.
+  return `${parts[0]}/…/${parts[parts.length - 1]}`;
+}
+
+const dayStart = ts => { const d = new Date(ts); d.setHours(0,0,0,0); return d; };
+const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const fmtDay = s => new Date(s + 'T00:00:00').toLocaleDateString([], { month:'short', day:'numeric' });
+
+function until(ts) {
+  const ms = ts - Date.now();
+  if (ms <= 0) return 'now';
+  const h = Math.floor(ms/3600e3), m = Math.floor((ms%3600e3)/60e3);
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+// Count-up so a changing figure reads as movement, not a silent swap.
+function animate(node, to, fmt) {
+  const from = Number(node.dataset.v || 0);
+  node.dataset.v = to;
+  if (Math.abs(to - from) < 1e-9) { node.textContent = fmt(to); return; }
+  const t0 = performance.now(), dur = 480;
+  (function step(t) {
+    const p = Math.min(1, (t - t0) / dur);
+    const e = 1 - Math.pow(1 - p, 3);           // ease-out cubic
+    node.textContent = fmt(from + (to - from) * e);
+    if (p < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+// Event tuple, dictionary-encoded by the parser:
+// [ts, modelIdx, projectIdx, sessionIdx, input, output, cacheWrite, cacheRead, cost, isSubagent]
+const T = { TS:0, M:1, P:2, S:3, IN:4, OUT:5, CW:6, CR:7, COST:8, SUB:9 };
+
+let DATA = null;
+let range = { mode: 'all', from: null, to: null };
+
+function bounds() {
+  if (!DATA || !DATA.events.length) return [0, Date.now()];
+  const last = Date.now();
+  if (range.mode === 'all') return [DATA.events[0][T.TS], last];
+  if (range.mode === 'custom' && range.from && range.to) {
+    const f = new Date(range.from + 'T00:00:00').getTime();
+    const t = new Date(range.to + 'T23:59:59.999').getTime();
+    return [f, t];
+  }
+  const days = Number(range.mode);
+  const start = dayStart(last);
+  start.setDate(start.getDate() - (days - 1));
+  return [start.getTime(), last];
+}
+
+function rangeLabel() {
+  if (range.mode === 'all') return 'all time';
+  if (range.mode === 'custom' && range.from && range.to) return `${fmtDay(range.from)} → ${fmtDay(range.to)}`;
+  if (range.mode === 'custom') return 'pick two dates';
+  return `last ${range.mode} days`;
+}
+
+// ---------------------------------------------------------------------------
+// Aggregation — everything below the quota bars is derived from this.
+// ---------------------------------------------------------------------------
+function aggregate() {
+  const [lo, hi] = bounds();
+  const evs = DATA.events.filter(e => e[T.TS] >= lo && e[T.TS] <= hi);
+  const { models, projects } = DATA.dict;
+
+  const tot = { cost:0, input:0, output:0, cacheWrite:0, cacheRead:0, turns:0, sub:0 };
+  const perModel = new Map(), perProject = new Map(), perDay = new Map();
+  const sessions = new Set(), hours = new Array(24).fill(0), activeDays = new Set();
+
+  for (const e of evs) {
+    tot.cost += e[T.COST]; tot.input += e[T.IN]; tot.output += e[T.OUT];
+    tot.cacheWrite += e[T.CW]; tot.cacheRead += e[T.CR]; tot.turns++;
+    if (e[T.SUB]) tot.sub += e[T.COST];
+    sessions.add(e[T.S]);
+    hours[new Date(e[T.TS]).getHours()] += e[T.IN] + e[T.OUT];
+
+    const mk = models[e[T.M]];
+    const m = perModel.get(mk) || { key: mk, turns:0, input:0, output:0, cost:0 };
+    m.turns++; m.input += e[T.IN]; m.output += e[T.OUT]; m.cost += e[T.COST];
+    perModel.set(mk, m);
+
+    const pk = projects[e[T.P]];
+    const p = perProject.get(pk) || { key: pk, cost:0, turns:0 };
+    p.cost += e[T.COST]; p.turns++;
+    perProject.set(pk, p);
+
+    const dk = iso(dayStart(e[T.TS]));
+    activeDays.add(dk);
+    const d = perDay.get(dk) || { day: dk, cost:0, tokens:0, byModel: new Map() };
+    d.cost += e[T.COST];
+    d.tokens += e[T.IN] + e[T.OUT];
+    const dm = d.byModel.get(mk) || { tokens:0, cost:0 };
+    dm.tokens += e[T.IN] + e[T.OUT]; dm.cost += e[T.COST];
+    d.byModel.set(mk, dm);
+    perDay.set(dk, d);
+  }
+
+  // Dense day series — a gap day must render as a gap, not vanish.
+  const days = [];
+  if (evs.length) {
+    const cur = dayStart(lo), end = dayStart(Math.min(hi, Date.now()));
+    while (cur <= end) {
+      const k = iso(cur);
+      days.push(perDay.get(k) || { day:k, cost:0, tokens:0, byModel:new Map() });
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
+
+  const billable = tot.input + tot.output;
+  const modelRows = [...perModel.values()]
+    .sort((a,b) => b.cost - a.cost)
+    .map(m => ({ ...m, share: billable ? (m.input + m.output) / billable * 100 : 0 }));
+
+  return {
+    lo, hi, evs, tot, days, modelRows,
+    projects: [...perProject.values()].sort((a,b) => b.cost - a.cost).slice(0, 12),
+    sessions: sessions.size,
+    activeDays: activeDays.size,
+    peakHour: hours.indexOf(Math.max(...hours)),
+    billable,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+const REASON = {
+  'rate-limited': 'endpoint rate-limited — backing off, will refresh shortly',
+  'unreachable': 'endpoint unreachable',
+  'no token': 'no OAuth token available',
+};
+
+function renderQuota(q) {
+  if (!q) {
+    // Only reachable before we have EVER fetched successfully.
+    el('planPill').textContent = 'unavailable';
+    el('planPill').className = 'pill est';
+    el('quota').innerHTML = '';
+    el('quotaAge').textContent = '';
+    el('quotaVerdict').textContent =
+      'No quota reading yet — offline, or no OAuth token. '
+      + 'Everything below is computed from local transcripts and is unaffected.';
+    el('deckPlan').textContent = '—';
+    el('deckBlurb').textContent = 'plan unavailable';
+    el('deckTiles').innerHTML = '';
+    return;
+  }
+
+  // A stale reading still beats a blank panel — show the bars, say how old.
+  const age = q.stale ? Math.round((Date.now() - q.staleSince) / 60000) : 0;
+  el('planPill').textContent = q.plan || 'live';
+  el('planPill').className = 'pill ' + (q.stale ? 'est' : 'real');
+  el('quotaAge').textContent = q.stale
+    ? `as of ${age < 1 ? 'under a minute' : age + 'm'} ago · ${REASON[q.staleReason] || q.staleReason}`
+    : 'live';
+  el('quota').innerHTML = q.limits.map(l => `
+    <div class="q ${l.percent >= 80 ? 'warn' : ''}">
+      <div class="lab">${l.label}<small>${l.resetsAt ? 'resets in ' + until(l.resetsAt) : ''}</small></div>
+      <div class="track"><i data-w="${Math.min(100, l.percent)}"></i></div>
+      <div class="pct">${l.percent}%</div>
+    </div>`).join('');
+  // Next frame, so the width transition actually plays.
+  requestAnimationFrame(() => {
+    el('quota').querySelectorAll('.track > i').forEach(i => { i.style.width = i.dataset.w + '%'; });
+  });
+  el('quotaVerdict').textContent = q.stale
+    ? 'Showing the last successful reading. The endpoint rate-limits aggressively, so this refreshes '
+      + 'every few minutes rather than continuously — the percentages move slowly enough that it does not matter.'
+    : 'Real, server-side numbers — the same ones /usage reports, and the only figures here that are not estimates. '
+      + 'Not affected by the date range.';
+
+  renderDeck(q);
+}
+
+// Top deck. Every tile is tagged live or declared — silently mixing the two is
+// the easiest way to make a dashboard lie.
+function renderDeck(q) {
+  const p = q.planInfo, c = q.credits;
+  if (!p) return;
+
+  el('deckPlan').textContent = p.label || p.type || '—';
+  el('deckBlurb').textContent = [
+    p.blurb,
+    p.status ? `subscription ${p.status}` : null,
+    p.billing === 'stripe_subscription' ? 'billed via Stripe' : null,
+  ].filter(Boolean).join(' · ');
+
+  const tiles = [];
+
+  if (p.priceUsd != null) {
+    tiles.push(['Plan cost', usd(p.priceUsd) + '/' + (p.billingPeriod === 'year' ? 'yr' : 'mo'), 0]);
+  }
+  if (p.renewsOn) {
+    const d = new Date(p.renewsOn + 'T00:00:00');
+    const days = Math.ceil((d - Date.now()) / 864e5);
+    tiles.push(['Renews', d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+      + (days > 0 ? ` · ${days}d` : ''), 0]);
+  }
+
+  if (c.enabled) {
+    // Usage credits are switched on — live, and they track themselves.
+    tiles.push(['Usage credits', c.balance != null ? usd(c.balance) : '—', 1]);
+    tiles.push(['Credits used', c.used != null ? usd(c.used) : '—', 1]);
+    tiles.push(['Auto-reload', c.autoReload ? 'On' : 'Off', 1]);
+  } else {
+    tiles.push(['Usage credits', 'Not enabled', 1]);
+    tiles.push(['Auto-reload', 'Off', 1]);
+  }
+
+  if (p.creditBalance != null) tiles.push(['Credit balance', usd(p.creditBalance), 0]);
+  if (p.spentToDate != null)   tiles.push(['Spent to date', usd(p.spentToDate), 0]);
+
+  el('deckTiles').innerHTML = tiles.map(([k, v, live]) =>
+    `<div class="tile${live ? '' : ' declared'}">
+       <span>${k}${live ? '' : ' <em>declared</em>'}</span><b>${v}</b>
+     </div>`).join('');
+}
+
+const tip = el('tip');
+function showTip(html, ev) {
+  tip.innerHTML = html;
+  tip.classList.add('on');
+  const r = tip.getBoundingClientRect();
+  let x = ev.clientX + 14, y = ev.clientY - r.height - 12;
+  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 14;
+  if (y < 8) y = ev.clientY + 16;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+}
+const hideTip = () => tip.classList.remove('on');
+
+function renderChart(a) {
+  const box = el('chart');
+  if (!a.days.length) {
+    box.innerHTML = '<div class="empty">No activity in this range.</div>';
+    el('chartSub').textContent = '';
+    return;
+  }
+  const max = Math.max(...a.days.map(d => d.tokens), 1);
+  // Round the axis up to a clean step so the gridlines read sensibly.
+  const pow = Math.pow(10, Math.floor(Math.log10(max)));
+  const top = Math.ceil(max / (pow / 2)) * (pow / 2);
+
+  const grid = [0, .25, .5, .75, 1].map(f => `
+    <div class="gl" style="bottom:${22 + f * (190 - 22 - 8)}px"></div>`).join('');
+  const axis = [0, .25, .5, .75, 1].map(f =>
+    `<span style="bottom:${f * 100}%">${f ? num(top * f) : '0'}</span>`).join('');
+
+  box.innerHTML = grid + `<div class="yaxis">${axis}</div>` +
+    a.days.map((d, i) => {
+      const h = d.tokens / top * 100;
+      const segs = [...d.byModel.entries()]
+        .sort((x, y) => y[1].tokens - x[1].tokens)
+        .map(([m, v]) => `<div class="seg" style="height:${v.tokens / Math.max(d.tokens,1) * 100}%;background:${hue(m)}"></div>`)
+        .join('');
+      const showLbl = a.days.length <= 32 || i % Math.ceil(a.days.length / 14) === 0;
+      return `<div class="col" data-i="${i}">
+        <div class="stack" style="height:${h}%;animation-delay:${Math.min(i * 12, 320)}ms">${segs}</div>
+        ${showLbl ? `<span class="lbl">${fmtDay(d.day)}</span>` : ''}
+      </div>`;
+    }).join('');
+
+  box.querySelectorAll('.col').forEach(col => {
+    const d = a.days[Number(col.dataset.i)];
+    const move = ev => {
+      if (!d.tokens) {
+        showTip(`<div class="d">${fmtDay(d.day)}</div><div style="color:var(--dim)">No activity</div>`, ev);
+        return;
+      }
+      const rows = [...d.byModel.entries()]
+        .sort((x, y) => y[1].cost - x[1].cost)
+        .map(([m, v]) => `<tr>
+            <td class="m"><span class="dot" style="background:${hue(m)}"></span>${short(m)}</td>
+            <td class="t">${num(v.tokens)}</td>
+            <td class="c">${usd(v.cost)}</td></tr>`).join('');
+      showTip(`<div class="d">${fmtDay(d.day)}</div><table>${rows}</table>
+        <div class="tot"><table><tr>
+          <td class="m"><b>Total</b></td>
+          <td class="t">${num(d.tokens)}</td>
+          <td class="c">${usd(d.cost)}</td></tr></table></div>`, ev);
+    };
+    col.addEventListener('mousemove', move);
+    col.addEventListener('mouseleave', hideTip);
+  });
+
+  const peak = a.days.reduce((m, d) => d.cost > m.cost ? d : m, { cost: 0, day: null });
+  el('chartSub').textContent = peak.day
+    ? `Bars are input + output tokens, stacked by model. Hover for the per-model token and cost split. `
+      + `Peak ${fmtDay(peak.day)} at ${usd(peak.cost)}.`
+    : 'Bars are input + output tokens, stacked by model.';
+}
+
+function renderHeat(d) {
+  const hmax = Math.max(...d.heatmap.map(h => h.tokens), 1);
+  el('heat').innerHTML = d.heatmap.map(h => {
+    const a = h.tokens ? 0.18 + 0.82 * Math.sqrt(h.tokens / hmax) : 0;
+    const bg = a ? `background:color-mix(in srgb, var(--accent) ${Math.round(a*100)}%, transparent)` : '';
+    return `<i data-day="${h.day}" style="${bg}" title="${fmtDay(h.day)} — ${num(h.tokens)} tokens, ${usd(h.cost)}"></i>`;
+  }).join('');
+  // Clicking a day drops the whole page into a one-day custom range.
+  el('heat').querySelectorAll('i').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const day = cell.dataset.day;
+      range = { mode: 'custom', from: day, to: day };
+      el('from').value = day; el('to').value = day;
+      syncTabs(); draw();
+    });
+  });
+}
+
+function draw() {
+  if (!DATA) return;
+  const a = aggregate();
+  const lbl = rangeLabel();
+  el('ovRange').textContent = lbl;
+  el('chartRange').textContent = lbl;
+  el('modelRange').textContent = lbl;
+
+  el('tiles').innerHTML = [
+    ['Cost', usd(a.tot.cost)],
+    ['Turns', a.tot.turns.toLocaleString()],
+    ['Tokens (in+out)', num(a.billable)],
+    ['Sessions', a.sessions],
+    ['Active days', a.activeDays],
+    ['Streak', DATA.stats.currentStreak + 'd / ' + DATA.stats.longestStreak + 'd'],
+    ['Peak hour', a.tot.turns ? hourLbl(a.peakHour) : '—'],
+    ['Top model', a.modelRows.length ? short(a.modelRows[0].key) : '—'],
+  ].map(([k, v]) => `<div class="tile"><span>${k}</span><b>${v}</b></div>`).join('');
+
+  renderChart(a);
+
+  el('models').innerHTML = a.modelRows.length ? a.modelRows.map(m => `
+    <tr>
+      <td><span class="dot" style="background:${hue(m.key)}"></span>${short(m.key)}</td>
+      <td>${m.turns}</td><td>${num(m.input)}</td><td>${num(m.output)}</td>
+      <td>${m.share.toFixed(1)}%</td><td>${usd(m.cost)}</td>
+    </tr>`).join('') : '<tr><td colspan="6" class="empty">No activity in this range.</td></tr>';
+
+  // --- Fixed windows: identical whatever range is selected --------------------
+  const b = DATA.block;
+  if (b) {
+    animate(el('blockCost'), b.cost, usd);
+    el('blockSub').textContent = `${num(b.tokens)} tokens · ${b.turns} turns`;
+  } else {
+    el('blockCost').textContent = '$0';
+    el('blockSub').textContent = 'no open window';
+  }
+
+  const t = DATA.today;
+  animate(el('dayCost'), t ? t.cost : 0, usd);
+  el('daySub').textContent = t ? `${t.turns.toLocaleString()} assistant turns` : 'idle';
+  el('dayVerdict').textContent = t
+    ? `${num(t.output)} output tokens generated, ${num(t.cacheRead)} read from cache.`
+    : 'No activity in the last 24 hours.';
+
+  animate(el('allCost'), DATA.totals.cost, usd);
+  el('allSub').textContent =
+    `${DATA.totals.turns.toLocaleString()} turns · ${DATA.stats.sessions} sessions · ${DATA.stats.activeDays} active days`;
+  el('allVerdict').textContent =
+    `Subagents account for ${usd(DATA.subagents.cost)} of it (${DATA.subagents.turns} turns). `
+    + 'Equivalent API cost — a burn proxy, not a bill. Max is flat-rate.';
+
+  el('projRange').textContent = lbl;
+  el('mixRange').textContent = lbl;
+
+  const pmax = Math.max(...a.projects.map(p => p.cost), 1e-9);
+  el('projects').innerHTML = a.projects.length ? a.projects.map(p => `
+    <div class="row">
+      <span class="name" title="${p.key}">${projLabel(p.key)}</span>
+      <span class="bar"><i data-w="${(p.cost/pmax*100).toFixed(1)}" style="background:var(--accent)"></i></span>
+      <span class="val">${usd(p.cost)}</span>
+    </div>`).join('') : '<div class="empty">Nothing in this range.</div>';
+
+  const mix = [
+    ['Cache read',  a.tot.cacheRead,  'var(--haiku)'],
+    ['Cache write', a.tot.cacheWrite, 'var(--opus)'],
+    ['Output',      a.tot.output,     'var(--fable)'],
+    ['Input',       a.tot.input,      'var(--sonnet)'],
+  ];
+  const mmax = Math.max(...mix.map(m => m[1]), 1);
+  el('mix').innerHTML = mix.map(([n, v, c]) => `
+    <div class="row">
+      <span class="name">${n}</span>
+      <span class="bar"><i data-w="${(v/mmax*100).toFixed(1)}" style="background:${c}"></i></span>
+      <span class="val">${num(v)}</span>
+    </div>`).join('');
+
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.bar > i[data-w]').forEach(i => { i.style.width = i.dataset.w + '%'; });
+  });
+
+  const hit = a.tot.cacheRead / Math.max(1, a.tot.cacheRead + a.tot.input);
+  el('cacheVerdict').textContent =
+    `Cache hit rate ${(hit*100).toFixed(1)}% — cached tokens bill at 10% of input, so this is where the savings live.`;
+
+  el('heatSub').textContent =
+    `${DATA.stats.activeDays} active days all time · longest streak ${DATA.stats.longestStreak}d · ${DATA.stats.sessions} sessions`;
+
+  el('foot').textContent = 'Parsed from ~/.claude/projects · updated '
+    + new Date(DATA.generatedAt).toLocaleTimeString();
+}
+
+function syncTabs() {
+  el('tabs').querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', b.dataset.r === range.mode));
+}
+
+el('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  range.mode = b.dataset.r;
+  if (range.mode === 'custom' && !(range.from && range.to)) {
+    // Seed the pickers with the last 14 days so "Custom" is never a dead end.
+    const to = dayStart(Date.now()), from = dayStart(Date.now());
+    from.setDate(from.getDate() - 13);
+    range.from = iso(from); range.to = iso(to);
+    el('from').value = range.from; el('to').value = range.to;
+  }
+  syncTabs(); draw();
+});
+
+for (const id of ['from', 'to']) {
+  el(id).addEventListener('change', () => {
+    range.from = el('from').value || null;
+    range.to = el('to').value || null;
+    if (range.from && range.to) {
+      if (range.from > range.to) [range.from, range.to] = [range.to, range.from];
+      el('from').value = range.from; el('to').value = range.to;
+      range.mode = 'custom';
+      syncTabs(); draw();
+    }
+  });
+}
+
+function receive(d) {
+  const first = !DATA;
+  DATA = d;
+  el('status').textContent = 'live';
+  el('status').className = 'live';
+  renderQuota(d.quota);
+  if (first) renderHeat(d);
+  draw();
+}
+
+if (vscode) {
+  window.addEventListener('message', e => receive(e.data));
+  vscode.postMessage('ready');
+} else {
+  const es = new EventSource('/api/stream');
+  es.onmessage = e => receive(JSON.parse(e.data));
+  es.onerror = () => {
+    el('status').textContent = 'disconnected';
+    el('status').className = 'live stale';
+  };
+}
+
+// The header only grows a border once it's actually pinned over content.
+const hdr = document.querySelector('header');
+const onScroll = () => hdr.classList.toggle('stuck', (window.scrollY || document.documentElement.scrollTop) > 4);
+window.addEventListener('scroll', onScroll, { passive: true });
+onScroll();
+
+range.mode = 'all';
+syncTabs();
+</script>
+</body>
+</html>
