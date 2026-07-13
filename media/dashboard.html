@@ -227,13 +227,33 @@
   /* Only one view exists at a time. */
   #compactView { display: none; }
   body.compact #compactView { display: grid; }
+  /* The long footer and the chart tooltip are SIBLINGS of #longView, not children —
+     so hiding #longView never hid them. That was the duplicate copyright block. */
   body.compact #longView,
+  body.compact > footer,
+  body.compact > #tip,
   body.compact .range { display: none; }
   body.long   .planchip { display: none; }
-  /* No scrolling is the entire point — but if a window is genuinely too short,
-     scrolling beats clipping data off the bottom. */
-  body.compact { overflow: hidden; height: 100vh; }
-  @media (max-height: 620px) { body.compact { overflow: auto; height: auto; } }
+  body.long   #compactView { display: none; }
+
+  /* Compact is a flex column, NOT hardcoded vh arithmetic.
+     In a narrow side-panel the header WRAPS onto two or three rows, so any
+     `calc(100vh - 76px)` is wrong the moment the window is narrow — the content
+     overflows and the first quota row gets clipped behind the header. Let flex
+     measure the header instead of guessing at it. */
+  body.compact {
+    display: flex; flex-direction: column;
+    height: 100vh; overflow: hidden;
+  }
+  /* Nothing scrolls in compact, so a sticky header is pointless — and its negative
+     margins and backdrop are what let it sit ON TOP of the content. */
+  body.compact header {
+    position: static; flex: 0 0 auto;
+    margin: 0 0 13px; padding: 0;
+    background: none; backdrop-filter: none;
+    border-bottom: 0; box-shadow: none;
+  }
+  body.compact #compactView { flex: 1 1 auto; min-height: 0; }
 
   /* ══════════════ PLAN CHIP + POPOVER ══════════════ */
   .planchip { position: relative; }
@@ -265,11 +285,17 @@
   .planchip .pop .hint { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--dim); }
 
   /* ══════════════ COMPACT LAYOUT ══════════════ */
+  /* Every row sizes to its content. Nothing gets a `1fr` — a flexible row is a row
+     that can be starved to nothing, and a starved row is what turned the trend
+     chart into flat lines. */
   #compactView {
-    grid-template-rows: auto auto auto 1fr auto;
-    gap: 13px; height: calc(100vh - 76px);
+    grid-template-rows: auto auto auto auto auto;
+    gap: 13px; min-height: 0;
+    align-content: start;
+    /* Last-resort valve: if a window is genuinely too small, scrolling beats
+       clipping data off the bottom. "No scroll" is the goal, not a suicide pact. */
+    overflow: auto;
   }
-  @media (max-height: 620px) { #compactView { height: auto; } }
 
   .c-quota, .c-kpis, .c-strip, .c-spark {
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -291,20 +317,72 @@
   .c-mixlab { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--dim); }
   .c-mixlab .k { display: flex; align-items: center; gap: 6px; }
 
-  .c-spark { display: grid; grid-template-rows: 1fr auto; gap: 6px; min-height: 0; }
-  .c-sparkbars { display: flex; align-items: flex-end; gap: 4px; min-height: 0; }
+  /* The bars need a REAL height. As a `1fr` grid row they collapsed toward zero the
+     moment anything else overflowed — which rendered them as flat lines. Give the
+     bar area a fixed floor instead of letting the layout starve it. */
+  .c-spark { display: grid; grid-template-rows: auto auto; gap: 6px; }
+  .c-sparkbars { display: flex; align-items: flex-end; gap: 4px; height: 64px; }
   .c-sparkbars > i {
-    flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px;
+    flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 3px;
     opacity: .75; transition: height .5s var(--ease);
   }
   .c-sparkbars > i:last-child { opacity: 1; background: var(--opus); }
   .c-sparklab { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); }
-  @media (max-height: 720px) { .c-spark { display: none; } #compactView { grid-template-rows: auto auto auto auto; } }
 
   .c-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
             font-size: 10.5px; color: var(--dim); border: 0; padding: 0; margin: 0; }
   .c-foot .legal a { color: var(--dim); text-decoration: none; border-bottom: 1px dotted var(--line); }
   .c-foot .legal a:hover { color: var(--fg); }
+
+  /* ══════════════ NARROW — side-panel and phone ══════════════
+     A 190px label column and four KPIs across do not fit in a 350px panel.
+     Reflow, don't squash. */
+  @media (max-width: 700px) {
+    body { padding: 13px; }
+    body.compact { height: auto; min-height: 100vh; overflow: auto; }
+    #compactView { overflow: visible; gap: 11px; }
+
+    /* Header stacks: brand+live, then the chip, then the toggle. */
+    header { gap: 8px; }
+    .brand h1 { font-size: 17px; }
+    .planchip { order: 3; width: 100%; }
+    .planchip > button { width: 100%; justify-content: space-between; }
+    .planchip .pop { right: 0; left: 0; min-width: 0; }
+    .viewtoggle { order: 4; }
+
+    /* Quota: label on its own line, bar below it — no 190px column to fight. */
+    .q {
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto auto;
+      column-gap: 10px; row-gap: 5px;
+    }
+    .q .lab   { grid-column: 1 / -1; grid-row: 1; }
+    .q .track { grid-column: 1; grid-row: 2; height: 9px; }
+    .q .pct   { grid-column: 2; grid-row: 2; font-size: 16px; min-width: 42px; }
+    .q .note  { grid-column: 1 / -1; grid-row: 3; }
+    .quota, .c-quota { gap: 15px; }
+
+    .c-kpis { grid-template-columns: repeat(2, 1fr); gap: 12px; }   /* 2×2, not 4 across */
+    .c-kpi b { font-size: 22px; }
+    .c-kpi span { font-size: 9.5px; }
+    .c-quota, .c-kpis, .c-strip, .c-spark { padding: 12px 13px; }
+    .c-sparkbars { height: 52px; }
+    .c-foot { flex-direction: column; align-items: flex-start; gap: 4px; }
+  }
+
+  /* True phone width — squeeze once more so the KPI numbers still read. */
+  @media (max-width: 430px) {
+    body { padding: 11px; }
+    .c-kpis { gap: 10px; }
+    .c-kpi b { font-size: 20px; }
+    .c-sparkbars { height: 44px; gap: 3px; }
+    .viewtoggle button, .tabs button { padding: 4px 9px; }
+  }
+
+  /* Short AND wide (a landscape strip) — shed the trend before anything essential. */
+  @media (max-height: 620px) and (min-width: 701px) {
+    .c-spark { display: none; }
+  }
 </style>
 </head>
 <body>
