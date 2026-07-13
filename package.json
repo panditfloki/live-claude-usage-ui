@@ -2,7 +2,7 @@
   "name": "claude-usage-meter",
   "displayName": "Mātrā — Claude Usage",
   "description": "Live Claude Code usage — burn rate in the status bar, full dashboard in a panel.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "dydxfx",
   "author": {
     "name": "Pandit Floki",

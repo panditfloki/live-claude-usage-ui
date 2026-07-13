@@ -176,7 +176,16 @@
   .tbl th:first-child, .tbl td:first-child { text-align: left; }
   .tbl th { color: var(--dim); font-weight: 500; font-size: 10.5px; border-bottom: 1px solid var(--line); }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; }
-  footer { margin-top: 16px; color: var(--dim); font-size: 11px; }
+  footer {
+    margin-top: 18px; padding-top: 12px;
+    border-top: 1px solid var(--line);
+    color: var(--dim); font-size: 11px;
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  footer .legal { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; align-items: baseline; }
+  footer .legal a { color: var(--dim); text-decoration: none; border-bottom: 1px dotted var(--line); }
+  footer .legal a:hover { color: var(--fg); border-bottom-color: var(--fg); }
+  footer .legal .sep { opacity: .45; }
   .empty { color: var(--dim); font-size: 12px; padding: 18px 0; text-align: center; }
 </style>
 </head>
@@ -190,9 +199,10 @@
   <span class="live" id="status">connecting…</span>
   <div class="range">
     <div class="tabs" id="tabs">
-      <button data-r="all">All</button>
-      <button data-r="30">30d</button>
+      <button data-r="today">Today</button>
       <button data-r="7">7d</button>
+      <button data-r="30">30d</button>
+      <button data-r="all">All</button>
       <button data-r="custom">Custom</button>
     </div>
     <div class="dates">
@@ -275,7 +285,19 @@
 </div>
 
 <div id="tip"></div>
-<footer id="foot">—</footer>
+
+<footer>
+  <div id="foot">—</div>
+  <div class="legal">
+    <span>© 2026 <a href="https://dydxfx.com" target="_blank" rel="noopener">dydxfx</a> · MIT</span>
+    <span class="sep">·</span>
+    <span>Built by Pandit Floki</span>
+    <span class="sep">·</span>
+    <a href="https://github.com/panditfloki/live-claude-usage-ui" target="_blank" rel="noopener">GitHub</a>
+    <span class="sep">·</span>
+    <span>Not affiliated with Anthropic</span>
+  </div>
+</footer>
 
 <script>
 // ---------------------------------------------------------------------------
@@ -341,6 +363,10 @@ function bounds() {
   if (!DATA || !DATA.events.length) return [0, Date.now()];
   const last = Date.now();
   if (range.mode === 'all') return [DATA.events[0][T.TS], last];
+  // Today = calendar day so far, midnight → now. NOT a rolling 24h window: the
+  // "Last 24 hours" KPI card already covers that, and conflating the two would
+  // put two different numbers under one label.
+  if (range.mode === 'today') return [dayStart(last).getTime(), last];
   if (range.mode === 'custom' && range.from && range.to) {
     const f = new Date(range.from + 'T00:00:00').getTime();
     const t = new Date(range.to + 'T23:59:59.999').getTime();
@@ -354,7 +380,12 @@ function bounds() {
 
 function rangeLabel() {
   if (range.mode === 'all') return 'all time';
-  if (range.mode === 'custom' && range.from && range.to) return `${fmtDay(range.from)} → ${fmtDay(range.to)}`;
+  if (range.mode === 'today') return 'today so far';
+  if (range.mode === 'custom' && range.from && range.to) {
+    return range.from === range.to
+      ? fmtDay(range.from)                       // single day picked
+      : `${fmtDay(range.from)} → ${fmtDay(range.to)}`;
+  }
   if (range.mode === 'custom') return 'pick two dates';
   return `last ${range.mode} days`;
 }
@@ -399,13 +430,36 @@ function aggregate() {
     perDay.set(dk, d);
   }
 
-  // Dense day series — a gap day must render as a gap, not vanish.
-  const days = [];
-  if (evs.length) {
+  // A single-day range as one fat bar tells you nothing. Drop to HOURLY buckets
+  // so "today" actually shows today's shape.
+  const singleDay = dayStart(lo).getTime() === dayStart(Math.min(hi, Date.now())).getTime();
+
+  let days = [];
+  if (singleDay && evs.length) {
+    const perHour = new Map();
+    for (const e of evs) {
+      const h = new Date(e[T.TS]).getHours();
+      const g = perHour.get(h) || { day: hourLbl(h), cost: 0, tokens: 0, byModel: new Map() };
+      g.cost += e[T.COST];
+      g.tokens += e[T.IN] + e[T.OUT];
+      const mk = models[e[T.M]];
+      const dm = g.byModel.get(mk) || { tokens: 0, cost: 0 };
+      dm.tokens += e[T.IN] + e[T.OUT]; dm.cost += e[T.COST];
+      g.byModel.set(mk, dm);
+      perHour.set(h, g);
+    }
+    // Only up to the current hour when the day is today; the full 24 otherwise.
+    const isToday = dayStart(lo).getTime() === dayStart(Date.now()).getTime();
+    const lastH = isToday ? new Date().getHours() : 23;
+    for (let h = 0; h <= lastH; h++) {
+      days.push(perHour.get(h) || { day: hourLbl(h), cost: 0, tokens: 0, byModel: new Map() });
+    }
+  } else if (evs.length) {
+    // Dense day series — a gap day must render as a gap, not vanish.
     const cur = dayStart(lo), end = dayStart(Math.min(hi, Date.now()));
     while (cur <= end) {
       const k = iso(cur);
-      days.push(perDay.get(k) || { day:k, cost:0, tokens:0, byModel:new Map() });
+      days.push(perDay.get(k) || { day: k, cost: 0, tokens: 0, byModel: new Map() });
       cur.setDate(cur.getDate() + 1);
     }
   }
@@ -417,6 +471,7 @@ function aggregate() {
 
   return {
     lo, hi, evs, tot, days, modelRows,
+    hourly: singleDay,          // chart buckets are hours, not days
     projects: [...perProject.values()].sort((a,b) => b.cost - a.cost).slice(0, 12),
     sessions: sessions.size,
     activeDays: activeDays.size,
@@ -535,6 +590,8 @@ const hideTip = () => tip.classList.remove('on');
 
 function renderChart(a) {
   const box = el('chart');
+  // Hourly buckets already carry a printable label ("9 AM"); daily ones are ISO.
+  const bucketLbl = d => a.hourly ? d.day : fmtDay(d.day);
   if (!a.days.length) {
     box.innerHTML = '<div class="empty">No activity in this range.</div>';
     el('chartSub').textContent = '';
@@ -560,7 +617,7 @@ function renderChart(a) {
       const showLbl = a.days.length <= 32 || i % Math.ceil(a.days.length / 14) === 0;
       return `<div class="col" data-i="${i}">
         <div class="stack" style="height:${h}%;animation-delay:${Math.min(i * 12, 320)}ms">${segs}</div>
-        ${showLbl ? `<span class="lbl">${fmtDay(d.day)}</span>` : ''}
+        ${showLbl ? `<span class="lbl">${bucketLbl(d)}</span>` : ''}
       </div>`;
     }).join('');
 
@@ -568,7 +625,7 @@ function renderChart(a) {
     const d = a.days[Number(col.dataset.i)];
     const move = ev => {
       if (!d.tokens) {
-        showTip(`<div class="d">${fmtDay(d.day)}</div><div style="color:var(--dim)">No activity</div>`, ev);
+        showTip(`<div class="d">${bucketLbl(d)}</div><div style="color:var(--dim)">No activity</div>`, ev);
         return;
       }
       const rows = [...d.byModel.entries()]
@@ -577,7 +634,7 @@ function renderChart(a) {
             <td class="m"><span class="dot" style="background:${hue(m)}"></span>${short(m)}</td>
             <td class="t">${num(v.tokens)}</td>
             <td class="c">${usd(v.cost)}</td></tr>`).join('');
-      showTip(`<div class="d">${fmtDay(d.day)}</div><table>${rows}</table>
+      showTip(`<div class="d">${bucketLbl(d)}</div><table>${rows}</table>
         <div class="tot"><table><tr>
           <td class="m"><b>Total</b></td>
           <td class="t">${num(d.tokens)}</td>
@@ -589,8 +646,9 @@ function renderChart(a) {
 
   const peak = a.days.reduce((m, d) => d.cost > m.cost ? d : m, { cost: 0, day: null });
   el('chartSub').textContent = peak.day
-    ? `Bars are input + output tokens, stacked by model. Hover for the per-model token and cost split. `
-      + `Peak ${fmtDay(peak.day)} at ${usd(peak.cost)}.`
+    ? `Bars are input + output tokens, stacked by model${a.hourly ? ', by hour' : ''}. `
+      + `Hover for the per-model token and cost split. `
+      + `Peak ${a.hourly ? peak.day : fmtDay(peak.day)} at ${usd(peak.cost)}.`
     : 'Bars are input + output tokens, stacked by model.';
 }
 
