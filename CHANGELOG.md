@@ -23,6 +23,17 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
   worse Long view. Today's model mix is therefore shown inline as a single bar — no click, and no
   need to silently guess a date range the compact view doesn't have.
 
+### Fixed (in local review, before this ever shipped — the review caught them)
+- **Duplicate copyright block in compact.** The long view's footer is a *sibling* of the long
+  grid, not a child — hiding the grid never hid it. Hidden explicitly.
+- **Trend chart collapsing to flat lines.** The bars sat in a `1fr` grid row, and a flexible row
+  is a row that can be starved to zero the moment anything overflows. The bar area now has a
+  real height, and no compact row is flexible.
+- **Narrow layouts** (IDE side-panel, phone): under 700px the header stacks, the plan chip goes
+  full-width, each quota label gets its own line, and the KPIs go 2×2; under 430px it tightens
+  again. On a phone the page scrolls naturally — one *page*, not one *screenful*; unreadable
+  text is worse than a scrollbar.
+
 ### Notes
 - The plan **tier** (5x / 20x) is detected live from the API. Only the **price** is declared —
   Max 5x is $100/mo, Max 20x is $200/mo — and it renders with a dotted underline rather than the
