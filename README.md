@@ -125,7 +125,7 @@ media/dashboard.html   one page, two hosts
 
 ## Licence & contact
 
-MIT — © 2026 Pandit Floki ([dydxfx Tech](https://dydxfx.com)). Not affiliated with Anthropic.
+MIT — © 2026 [dydxfx Tech](https://dydxfx.com). Not affiliated with Anthropic.
 
 Built by **Pandit Floki** at **dydxfx Tech** · [dydxfx.com](https://dydxfx.com) · <pandit@dydxfx.com>
 
