@@ -123,6 +123,10 @@ media/dashboard.html   one page, two hosts
 - `claudeUsage.statusBar.metric` — `quota` (default) · `cost` · `today` · `total`
 - `claudeUsage.statusBar.show`
 
-## Licence
+## Licence & contact
 
-MIT. Not affiliated with Anthropic.
+MIT — © 2026 Pandit Floki ([dydxfx Tech](https://dydxfx.com)). Not affiliated with Anthropic.
+
+Built by **Pandit Floki** at **dydxfx Tech** · [dydxfx.com](https://dydxfx.com) · <pandit@dydxfx.com>
+
+Issues and PRs welcome on [GitHub](https://github.com/panditfloki/live-claude-usage-ui/issues).

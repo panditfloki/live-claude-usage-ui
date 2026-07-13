@@ -3,16 +3,41 @@
   "displayName": "Mātrā — Claude Usage",
   "description": "Live Claude Code usage — burn rate in the status bar, full dashboard in a panel.",
   "version": "0.8.0",
-  "publisher": "panditji",
+  "publisher": "dydxfx",
+  "author": {
+    "name": "Pandit Floki",
+    "email": "pandit@dydxfx.com",
+    "url": "https://dydxfx.com"
+  },
   "license": "MIT",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other"],
+  "homepage": "https://dydxfx.com",
   "repository": {
     "type": "git",
     "url": "https://github.com/panditfloki/live-claude-usage-ui.git"
   },
+  "bugs": {
+    "url": "https://github.com/panditfloki/live-claude-usage-ui/issues",
+    "email": "pandit@dydxfx.com"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "usage",
+    "quota",
+    "dashboard",
+    "status-bar",
+    "anthropic"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "main": "./extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
@@ -29,7 +54,12 @@
       "properties": {
         "claudeUsage.statusBar.metric": {
           "type": "string",
-          "enum": ["quota", "cost", "today", "total"],
+          "enum": [
+            "quota",
+            "cost",
+            "today",
+            "total"
+          ],
           "default": "quota",
           "enumDescriptions": [
             "Real session quota % and reset countdown (falls back to cost if unavailable)",
