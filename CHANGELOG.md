@@ -6,6 +6,30 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.10.0] — 2026-07-14
+
+### Added
+- **Pace indicator on every quota bar.** The bar tells you how much you've used; it cannot tell
+  you whether you're on track to run out. A ghost marker (▾) now shows where you'd *end up* at
+  the current burn rate, with a verdict line beneath: `13% used · 14% of the week gone · on pace
+  for 93% by Mon 3:29 AM`. Colour follows the **projection**, not the current bar — 13% used
+  looks comfortable until you notice only 14% of the week has passed.
+  If you're on track to cap out early, it says *when*.
+  Assumes a constant burn rate and real usage is bursty, so it is labelled a **pace indicator,
+  not a forecast**, and it suppresses itself early in a window rather than printing a wild number.
+
+### Changed
+- **Readable reset times.** `145h 42m` → `6d · Mon 3:29 AM`. Two most significant units, plus the
+  absolute clock time — a duration tells you the runway, a clock time tells you when to come back.
+  Applies to the dashboard and the status-bar tooltip.
+
+### Fixed
+- Window length (5h session / 7d weekly) is **derived on read, never cached**. A cache written by
+  an older build was serving limits without it, which silently suppressed the pace indicator —
+  the same class of bug as the `plan.json` cache staleness fixed earlier.
+
+---
+
 ## [0.9.0] — 2026-07-14
 
 **First public release.** Versions below this were pre-release iterations and were never
@@ -68,4 +92,5 @@ Built and iterated locally; never published. What landed, in order:
   on hover, top deck with plan and price, and three fixed KPI cards (5-hour window, last 24h,
   all time) that do **not** move when the range changes.
 
+[0.10.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v0.10.0
 [0.9.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v0.9.0

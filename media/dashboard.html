@@ -105,16 +105,42 @@
   .bar > i { display: block; height: 100%; border-radius: 3px; width: 0; transition: width .55s var(--ease); }
 
   /* Plan quota — the only server-side truth on this page. */
-  .quota { display: grid; gap: 15px; }
-  .q { display: grid; grid-template-columns: 190px 1fr 88px; align-items: center; gap: 15px; }
-  .q .lab { font-size: 12.5px; }
+  .quota { display: grid; gap: 17px; }
+  .q {
+    display: grid; grid-template-columns: 190px 1fr 88px;
+    grid-template-rows: auto auto; column-gap: 15px; row-gap: 5px;
+    align-items: center;
+  }
+  .q .lab { grid-row: 1 / span 2; font-size: 12.5px; align-self: center; }
   .q .lab small { display: block; color: var(--dim); font-size: 11px; }
-  .q .track { height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
+  .q .track {
+    grid-column: 2; grid-row: 1;
+    position: relative; height: 10px; border-radius: 5px; background: var(--line);
+  }
   .q .track > i {
     display: block; height: 100%; border-radius: 5px; background: var(--accent);
     width: 0; transition: width .8s var(--ease);
   }
-  .q .pct { text-align: right; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  /* Where you'd END UP at this burn rate — the number the bar alone can't tell you. */
+  .q .track .pace {
+    position: absolute; top: -4px; bottom: -4px; width: 2px;
+    background: var(--dim); border-radius: 1px;
+    transition: left .8s var(--ease);
+  }
+  .q .track .pace::after {
+    content: ""; position: absolute; top: -3px; left: -2px;
+    border-left: 3px solid transparent; border-right: 3px solid transparent;
+    border-top: 4px solid currentColor;
+  }
+  .q .track .pace.ok    { background: var(--haiku); color: var(--haiku); }
+  .q .track .pace.tight { background: var(--opus);  color: var(--opus); }
+  .q .track .pace.over  { background: var(--warn);  color: var(--warn); }
+  .q .pct { grid-column: 3; grid-row: 1; text-align: right; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .q .note { grid-column: 2 / span 2; grid-row: 2; font-size: 11px; color: var(--dim); }
+  .q .note b.ok    { color: var(--haiku); }
+  .q .note b.tight { color: var(--opus); }
+  .q .note b.over  { color: var(--warn); }
+  .q .note .dim { opacity: .6; }
   .q.warn .track > i { background: var(--warn); }
   .q.warn .pct { color: var(--warn); }
 
@@ -328,11 +354,62 @@ const dayStart = ts => { const d = new Date(ts); d.setHours(0,0,0,0); return d; 
 const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const fmtDay = s => new Date(s + 'T00:00:00').toLocaleDateString([], { month:'short', day:'numeric' });
 
+// "145h 42m" is unreadable. Show the two most significant units — at week scale
+// nobody needs the minutes, and "6d 0h 42m" is just noise.
 function until(ts) {
   const ms = ts - Date.now();
   if (ms <= 0) return 'now';
-  const h = Math.floor(ms/3600e3), m = Math.floor((ms%3600e3)/60e3);
-  return h ? `${h}h ${m}m` : `${m}m`;
+  const d = Math.floor(ms / 864e5);
+  const h = Math.floor((ms % 864e5) / 3600e3);
+  const m = Math.floor((ms % 3600e3) / 60e3);
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// A duration is the runway; a clock time is when to come back. Show both —
+// the absolute time is what you actually plan around.
+function clockAt(ts) {
+  const soon = ts - Date.now() < 20 * 3600e3;   // within the day: drop the weekday
+  return new Date(ts).toLocaleString([], soon
+    ? { hour: 'numeric', minute: '2-digit' }
+    : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+/**
+ * Are you on pace to blow the limit before it resets?
+ *
+ * The API returns only the CURRENT percentage — there is no history endpoint —
+ * but it tells us when the window ends, and quota.js infers how long the window
+ * is from its kind. That's enough: burn = used% ÷ elapsed%.
+ *
+ * It assumes a CONSTANT burn rate, and real usage is bursty. So this is a pace
+ * INDICATOR, not a forecast, and the UI says so. Returns null rather than
+ * something misleading.
+ */
+function pace(l) {
+  if (!l.resetsAt || !l.windowMs) return null;
+  const remaining = l.resetsAt - Date.now();
+  if (remaining <= 0) return null;
+  const elapsed = l.windowMs - remaining;
+  // Too early in the window — dividing by a sliver of elapsed time gives wild,
+  // useless projections. Say nothing rather than something wrong.
+  if (elapsed <= 0 || elapsed / l.windowMs < 0.05) return null;
+
+  const elapsedPct = elapsed / l.windowMs * 100;
+  const projected = l.percent / elapsedPct * 100;
+  // If you're on track to cap out early, when?
+  const rate = l.percent / elapsed;                     // % per ms
+  const capsAt = projected > 100 && rate > 0
+    ? Date.now() + (100 - l.percent) / rate
+    : null;
+
+  return {
+    elapsedPct,
+    projected,
+    capsAt: capsAt && capsAt < l.resetsAt ? capsAt : null,
+    unit: l.group === 'session' ? 'the 5-hour window' : 'the week',
+  };
 }
 
 // Count-up so a changing figure reads as movement, not a silent swap.
@@ -512,21 +589,42 @@ function renderQuota(q) {
   el('quotaAge').textContent = q.stale
     ? `as of ${age < 1 ? 'under a minute' : age + 'm'} ago · ${REASON[q.staleReason] || q.staleReason}`
     : 'live';
-  el('quota').innerHTML = q.limits.map(l => `
+  el('quota').innerHTML = q.limits.map(l => {
+    const p = pace(l);
+    // Colour by the PROJECTION, not the current bar — 13% used looks fine, but
+    // 13% used with only 14% of the week gone is a different story entirely.
+    const tone = !p ? '' : p.projected > 95 ? 'over' : p.projected > 70 ? 'tight' : 'ok';
+    const note = !p
+      ? '<span class="dim">gathering pace data…</span>'
+      : `${l.percent}% used · ${p.elapsedPct.toFixed(0)}% of ${p.unit} gone · `
+        + (p.capsAt
+            ? `<b class="over">on pace to hit the cap around ${clockAt(p.capsAt)}</b>`
+            : `on pace for <b class="${tone}">${Math.round(p.projected)}%</b> by ${clockAt(l.resetsAt)}`);
+    return `
     <div class="q ${l.percent >= 80 ? 'warn' : ''}">
-      <div class="lab">${l.label}<small>${l.resetsAt ? 'resets in ' + until(l.resetsAt) : ''}</small></div>
-      <div class="track"><i data-w="${Math.min(100, l.percent)}"></i></div>
+      <div class="lab">${l.label}
+        <small>${l.resetsAt ? `resets in ${until(l.resetsAt)} · ${clockAt(l.resetsAt)}` : ''}</small>
+      </div>
+      <div class="track">
+        <i data-w="${Math.min(100, l.percent)}"></i>
+        ${p ? `<span class="pace ${tone}" style="left:${Math.min(100, p.projected).toFixed(1)}%"
+                 title="Projected ${Math.round(p.projected)}% at reset, at the current burn rate"></span>` : ''}
+      </div>
       <div class="pct">${l.percent}%</div>
-    </div>`).join('');
+      <div class="note">${note}</div>
+    </div>`;
+  }).join('');
   // Next frame, so the width transition actually plays.
   requestAnimationFrame(() => {
     el('quota').querySelectorAll('.track > i').forEach(i => { i.style.width = i.dataset.w + '%'; });
   });
-  el('quotaVerdict').textContent = q.stale
-    ? 'Showing the last successful reading. The endpoint rate-limits aggressively, so this refreshes '
-      + 'every few minutes rather than continuously — the percentages move slowly enough that it does not matter.'
-    : 'Real, server-side numbers — the same ones /usage reports, and the only figures here that are not estimates. '
-      + 'Not affected by the date range.';
+  el('quotaVerdict').textContent = (q.stale
+    ? 'Showing the last successful reading — the endpoint rate-limits aggressively, so this refreshes '
+      + 'every few minutes rather than continuously. The percentages move slowly enough that it does not matter. '
+    : 'Percentages and reset times are real, server-side numbers — the same ones /usage reports. '
+      + 'Not affected by the date range. ')
+    + 'The pace marker (▾) is where you would END UP at the current burn rate — it assumes a constant '
+      + 'rate and your usage is bursty, so treat it as a pace indicator, not a forecast.';
 
   renderDeck(q);
 }

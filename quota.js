@@ -156,6 +156,18 @@ function decorate(data) {
   const cfg = local();
   return {
     ...data,
+    // Window LENGTH is not in the API response — only when the window ENDS. We
+    // infer it from the kind (session = 5h, weekly = 7d), which is what lets the
+    // client work out how far through the window you are, and therefore whether
+    // you are on pace to blow the limit.
+    //
+    // Derived on READ, never cached — a cache written by an older build would
+    // otherwise keep serving limits with this field missing, and the pace
+    // indicator would silently vanish. (Exactly what happened once already.)
+    limits: (data.limits || []).map(l => ({
+      ...l,
+      windowMs: l.group === 'session' ? 5 * 3600e3 : 7 * 24 * 3600e3,
+    })),
     planInfo: {
       ...data.planInfo,
       renewsOn: cfg.renewsOn || null,

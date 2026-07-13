@@ -17,12 +17,16 @@ const num = n =>
   n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' :
   n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
 
+// "145h 42m" is unreadable — show the two most significant units.
 function until(ts) {
   const ms = ts - Date.now();
   if (ms <= 0) return 'now';
-  const h = Math.floor(ms / 3600e3);
+  const d = Math.floor(ms / 864e5);
+  const h = Math.floor((ms % 864e5) / 3600e3);
   const m = Math.floor((ms % 3600e3) / 60e3);
-  return h ? `${h}h ${m}m` : `${m}m`;
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
 // Text bar for the tooltip — a webview isn't available there.
