@@ -213,6 +213,98 @@
   footer .legal a:hover { color: var(--fg); border-bottom-color: var(--fg); }
   footer .legal .sep { opacity: .45; }
   .empty { color: var(--dim); font-size: 12px; padding: 18px 0; text-align: center; }
+
+  /* ══════════════ VIEW SWITCHING ══════════════ */
+  .viewtoggle { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .viewtoggle button {
+    background: none; border: 0; color: var(--dim); cursor: pointer;
+    font: inherit; font-size: 12px; padding: 4px 11px; border-radius: 6px;
+    transition: background .2s var(--ease), color .2s var(--ease);
+  }
+  .viewtoggle button:hover { color: var(--fg); }
+  .viewtoggle button.on { background: var(--accent); color: #fff; }
+
+  /* Only one view exists at a time. */
+  #compactView { display: none; }
+  body.compact #compactView { display: grid; }
+  body.compact #longView,
+  body.compact .range { display: none; }
+  body.long   .planchip { display: none; }
+  /* No scrolling is the entire point — but if a window is genuinely too short,
+     scrolling beats clipping data off the bottom. */
+  body.compact { overflow: hidden; height: 100vh; }
+  @media (max-height: 620px) { body.compact { overflow: auto; height: auto; } }
+
+  /* ══════════════ PLAN CHIP + POPOVER ══════════════ */
+  .planchip { position: relative; }
+  .planchip > button {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    color: var(--fg); cursor: pointer; font: inherit; font-size: 12px;
+    padding: 4px 12px; display: flex; align-items: center; gap: 6px;
+    transition: border-color .2s var(--ease);
+  }
+  .planchip > button:hover { border-color: var(--dim); }
+  .planchip .caret { color: var(--dim); font-size: 9px; transition: transform .2s var(--ease); }
+  .planchip.open .caret { transform: rotate(180deg); }
+  /* A declared figure gets a dotted underline — honest, but quiet enough for a chip.
+     The loud dashed-tile treatment would be far too noisy here. */
+  .planchip .decl { border-bottom: 1px dotted var(--warn); cursor: help; }
+  .planchip .pop {
+    position: absolute; top: calc(100% + 7px); right: 0; z-index: 60;
+    min-width: 230px; padding: 11px 13px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    opacity: 0; visibility: hidden; transform: translateY(-4px);
+    transition: opacity .16s var(--ease), transform .16s var(--ease), visibility .16s;
+  }
+  .planchip.open .pop { opacity: 1; visibility: visible; transform: none; }
+  .planchip .pop .r { display: flex; justify-content: space-between; gap: 18px; font-size: 12px; padding: 3px 0; }
+  .planchip .pop .r span { color: var(--dim); }
+  .planchip .pop .r b { font-weight: 600; }
+  .planchip .pop .r b.decl { border-bottom: 1px dotted var(--warn); }
+  .planchip .pop .hint { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--dim); }
+
+  /* ══════════════ COMPACT LAYOUT ══════════════ */
+  #compactView {
+    grid-template-rows: auto auto auto 1fr auto;
+    gap: 13px; height: calc(100vh - 76px);
+  }
+  @media (max-height: 620px) { #compactView { height: auto; } }
+
+  .c-quota, .c-kpis, .c-strip, .c-spark {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .c-quota { display: grid; gap: 14px; }
+
+  .c-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .c-kpi span { display: block; color: var(--dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+  .c-kpi span i.est { font-style: normal; color: var(--warn); font-size: 9px; letter-spacing: .04em; }
+  .c-kpi b { display: block; font-size: 25px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 3px; }
+  .c-kpi small { display: block; color: var(--dim); font-size: 11px; }
+
+  /* Today's model mix — one bar, zero clicks. A dropdown here would have to guess
+     a date range, and whichever it guessed would mislead half the time. */
+  .c-strip { display: grid; gap: 8px; }
+  .c-mix { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); }
+  .c-mix > i { height: 100%; transition: width .6s var(--ease); }
+  .c-mixlab { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--dim); }
+  .c-mixlab .k { display: flex; align-items: center; gap: 6px; }
+
+  .c-spark { display: grid; grid-template-rows: 1fr auto; gap: 6px; min-height: 0; }
+  .c-sparkbars { display: flex; align-items: flex-end; gap: 4px; min-height: 0; }
+  .c-sparkbars > i {
+    flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px;
+    opacity: .75; transition: height .5s var(--ease);
+  }
+  .c-sparkbars > i:last-child { opacity: 1; background: var(--opus); }
+  .c-sparklab { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); }
+  @media (max-height: 720px) { .c-spark { display: none; } #compactView { grid-template-rows: auto auto auto auto; } }
+
+  .c-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+            font-size: 10.5px; color: var(--dim); border: 0; padding: 0; margin: 0; }
+  .c-foot .legal a { color: var(--dim); text-decoration: none; border-bottom: 1px dotted var(--line); }
+  .c-foot .legal a:hover { color: var(--fg); }
 </style>
 </head>
 <body>
@@ -220,9 +312,21 @@
 <header>
   <div class="brand">
     <h1>Mātrā</h1>
-    <span class="tag">Claude usage · long view</span>
+    <span class="tag" id="viewTag">Claude usage</span>
   </div>
   <span class="live" id="status">connecting…</span>
+
+  <!-- Compact-only: the plan is static, so it earns a chip and a click, not a card. -->
+  <div class="planchip" id="planChip">
+    <button id="planBtn"><span id="chipText">—</span> <span class="caret">▾</span></button>
+    <div class="pop" id="planPop"></div>
+  </div>
+
+  <div class="viewtoggle" id="viewToggle">
+    <button data-v="compact">Compact</button>
+    <button data-v="long">Long</button>
+  </div>
+
   <div class="range">
     <div class="tabs" id="tabs">
       <button data-r="today">Today</button>
@@ -237,7 +341,38 @@
   </div>
 </header>
 
-<div class="grid">
+<!-- ═══ COMPACT: one screen, no scrolling. Answers exactly one question —
+     "am I OK right now, and what is it costing me?" Nothing else earns its pixels. ═══ -->
+<main id="compactView">
+  <section class="c-quota" id="cQuota"></section>
+
+  <section class="c-kpis">
+    <div class="c-kpi"><span>Today</span><b id="cToday">—</b><small id="cTodaySub">—</small></div>
+    <div class="c-kpi"><span>5-hour window <i class="est">est</i></span><b id="cBlock">—</b><small id="cBlockSub">—</small></div>
+    <div class="c-kpi"><span>Last 24 hours</span><b id="cDay">—</b><small id="cDaySub">—</small></div>
+    <div class="c-kpi"><span>All time</span><b id="cAll">—</b><small id="cAllSub">—</small></div>
+  </section>
+
+  <section class="c-strip">
+    <div class="c-mix" id="cMix"></div>
+    <div class="c-mixlab" id="cMixLab">—</div>
+  </section>
+
+  <section class="c-spark">
+    <div class="c-sparkbars" id="cSpark"></div>
+    <div class="c-sparklab"><span id="cSparkLab">last 14 days</span></div>
+  </section>
+
+  <footer class="c-foot">
+    <span id="cFoot">—</span>
+    <span class="legal">
+      © 2026 <a href="https://dydxfx.com" target="_blank" rel="noopener">dydxfx</a> · MIT ·
+      <a href="https://github.com/panditfloki/live-claude-usage-ui" target="_blank" rel="noopener">GitHub</a>
+    </span>
+  </footer>
+</main>
+
+<div class="grid" id="longView">
   <!-- Top deck: what you're on, and what it costs. -->
   <div class="card wide deck">
     <div class="deck-l">
@@ -892,14 +1027,169 @@ for (const id of ['from', 'to']) {
   });
 }
 
+// ══════════════════ COMPACT VIEW ══════════════════
+// One screen, no scrolling. It answers exactly one question: am I OK right now,
+// and what is it costing me? Everything cut from here is one click away in Long.
+
+function renderCompact() {
+  if (!DATA) return;
+  const q = DATA.quota;
+
+  // ── plan chip: tier is LIVE (from the API); price and renewal are DECLARED ──
+  if (q && q.planInfo) {
+    const p = q.planInfo;
+    const bits = [p.label || p.type || '—'];
+    if (p.priceUsd != null) bits.push(`<span class="decl" title="Declared in plan.json — the API has no billing scope">${usd(p.priceUsd)}/${p.billingPeriod === 'year' ? 'yr' : 'mo'}</span>`);
+    if (p.renewsOn) bits.push(`renews ${new Date(p.renewsOn + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}`);
+    el('chipText').innerHTML = bits.join(' · ');
+
+    const c = q.credits;
+    const rows = [
+      ['Plan', p.label || '—', 0],
+      ['Subscription', p.status || '—', 0],
+      ['Billing', p.billing === 'stripe_subscription' ? 'Stripe' : (p.billing || '—'), 0],
+      ['Price', p.priceUsd != null ? `${usd(p.priceUsd)}/${p.billingPeriod === 'year' ? 'yr' : 'mo'}` : '—', 1],
+      ['Renews', p.renewsOn ? new Date(p.renewsOn + 'T00:00:00').toLocaleDateString([], { month:'short', day:'numeric', year:'numeric' }) : '—', 1],
+      ['Usage credits', c.enabled ? (c.balance != null ? usd(c.balance) : 'enabled') : 'not enabled', 0],
+      ['Auto-reload', c.enabled ? (c.autoReload ? 'On' : 'Off') : 'Off', 0],
+    ];
+    if (p.creditBalance != null) rows.push(['Credit balance', usd(p.creditBalance), 1]);
+    el('planPop').innerHTML = rows.map(([k, v, d]) =>
+      `<div class="r"><span>${k}</span><b class="${d ? 'decl' : ''}">${v}</b></div>`).join('')
+      + '<div class="hint">Dotted = declared in plan.json. The OAuth token has no billing scope, '
+      + 'so price, renewal and credit balance cannot be fetched.</div>';
+  } else {
+    el('chipText').textContent = 'plan unavailable';
+    el('planPop').innerHTML = '<div class="r"><span>Quota endpoint unreachable</span></div>';
+  }
+
+  // ── quota bars + pace: the only actionable thing on the page ──
+  el('cQuota').innerHTML = !q ? '<div class="empty">Quota unavailable — local figures below are unaffected.</div>'
+    : q.limits.map(l => {
+      const p = pace(l);
+      const tone = !p ? '' : p.projected > 95 ? 'over' : p.projected > 70 ? 'tight' : 'ok';
+      const note = !p ? '<span class="dim">gathering pace data…</span>'
+        : (p.capsAt
+            ? `<b class="over">on pace to hit the cap around ${clockAt(p.capsAt)}</b>`
+            : `on pace for <b class="${tone}">${Math.round(p.projected)}%</b>`);
+      return `
+      <div class="q ${l.percent >= 80 ? 'warn' : ''}">
+        <div class="lab">${l.label}<small>${l.resetsAt ? `${until(l.resetsAt)} left · ${clockAt(l.resetsAt)}` : ''}</small></div>
+        <div class="track">
+          <i data-w="${Math.min(100, l.percent)}"></i>
+          ${p ? `<span class="pace ${tone}" style="left:${Math.min(100, p.projected).toFixed(1)}%"></span>` : ''}
+        </div>
+        <div class="pct">${l.percent}%</div>
+        <div class="note">${note}</div>
+      </div>`;
+    }).join('');
+  requestAnimationFrame(() => {
+    el('cQuota').querySelectorAll('.track > i').forEach(i => { i.style.width = i.dataset.w + '%'; });
+  });
+
+  // ── cost: four fixed numbers, no range control (deliberately) ──
+  const T2 = T;
+  const todayLo = dayStart(Date.now()).getTime();
+  const todayEvs = DATA.events.filter(e => e[T2.TS] >= todayLo);
+  const tCost = todayEvs.reduce((a, e) => a + e[T2.COST], 0);
+
+  animate(el('cToday'), tCost, usd);
+  el('cTodaySub').textContent = `${todayEvs.length.toLocaleString()} turns`;
+  animate(el('cBlock'), DATA.block ? DATA.block.cost : 0, usd);
+  el('cBlockSub').textContent = DATA.block ? `${DATA.block.turns} turns` : 'no open window';
+  animate(el('cDay'), DATA.today ? DATA.today.cost : 0, usd);
+  el('cDaySub').textContent = DATA.today ? `${DATA.today.turns.toLocaleString()} turns` : 'idle';
+  animate(el('cAll'), DATA.totals.cost, usd);
+  el('cAllSub').textContent = `${DATA.totals.turns.toLocaleString()} turns`;
+
+  // ── today's model mix: one bar, zero clicks ──
+  const mix = new Map();
+  for (const e of todayEvs) {
+    const m = DATA.dict.models[e[T2.M]];
+    const g = mix.get(m) || { cost: 0, turns: 0 };
+    g.cost += e[T2.COST]; g.turns++;
+    mix.set(m, g);
+  }
+  const mixRows = [...mix.entries()].sort((a, b) => b[1].cost - a[1].cost);
+  if (!mixRows.length) {
+    el('cMix').innerHTML = '';
+    el('cMixLab').innerHTML = '<span class="k">No activity yet today</span>';
+  } else {
+    el('cMix').innerHTML = mixRows.map(([m, g]) =>
+      `<i style="width:${(g.cost / Math.max(tCost, 1e-9) * 100).toFixed(1)}%;background:${hue(m)}" title="${short(m)} — ${usd(g.cost)}"></i>`).join('');
+    el('cMixLab').innerHTML = mixRows.map(([m, g]) =>
+      `<span class="k"><span class="dot" style="background:${hue(m)}"></span>${short(m)} ${usd(g.cost)}</span>`).join('');
+  }
+
+  // ── 14-day trend ──
+  const days = DATA.daily.slice(-14);
+  const dmax = Math.max(...days.map(d => d.cost), 1e-9);
+  el('cSpark').innerHTML = days.map(d =>
+    `<i style="height:${Math.max(2, d.cost / dmax * 100).toFixed(1)}%" title="${fmtDay(d.day)} — ${usd(d.cost)}"></i>`).join('');
+  const peak = days.reduce((m, d) => d.cost > m.cost ? d : m, { cost: 0, day: null });
+  el('cSparkLab').textContent = peak.day
+    ? `last ${days.length} days · peak ${fmtDay(peak.day)} ${usd(peak.cost)}`
+    : `last ${days.length} days`;
+
+  el('cFoot').textContent = 'updated ' + new Date(DATA.generatedAt).toLocaleTimeString();
+}
+
+// ══════════════════ VIEW STATE ══════════════════
+// Glancing is the common case, analysis the rare one — so the IDE panel opens
+// compact. The browser is where you go to dig, so it opens long.
+const store = {
+  get: () => {
+    try {
+      if (vscode) return (vscode.getState() || {}).view;
+      return localStorage.getItem('matra.view');
+    } catch { return null; }
+  },
+  set: v => {
+    try {
+      if (vscode) vscode.setState({ ...(vscode.getState() || {}), view: v });
+      else localStorage.setItem('matra.view', v);
+    } catch {}
+  },
+};
+let view = store.get() || (vscode ? 'compact' : 'long');
+
+function applyView() {
+  document.body.classList.toggle('compact', view === 'compact');
+  document.body.classList.toggle('long', view === 'long');
+  el('viewToggle').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+  el('viewTag').textContent = view === 'compact' ? 'Claude usage · compact' : 'Claude usage · long view';
+  store.set(view);
+  if (DATA) view === 'compact' ? renderCompact() : draw();
+}
+
+el('viewToggle').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  view = b.dataset.v;
+  applyView();
+});
+
+// Plan popover — the one disclosure on the page. The plan is static and
+// secondary, which is exactly what earns it a click instead of a card.
+el('planBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  el('planChip').classList.toggle('open');
+});
+document.addEventListener('click', () => el('planChip').classList.remove('open'));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') el('planChip').classList.remove('open'); });
+
 function receive(d) {
   const first = !DATA;
   DATA = d;
   el('status').textContent = 'live';
   el('status').className = 'live';
-  renderQuota(d.quota);
   if (first) renderHeat(d);
-  draw();
+  if (view === 'compact') {
+    renderCompact();
+  } else {
+    renderQuota(d.quota);
+    draw();
+  }
 }
 
 if (vscode) {
@@ -922,6 +1212,7 @@ onScroll();
 
 range.mode = 'all';
 syncTabs();
+applyView();
 </script>
 </body>
 </html>

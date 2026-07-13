@@ -6,6 +6,32 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.0] — 2026-07-14
+
+### Added
+- **Compact view — the one-pager.** Everything on a single screen, no scrolling. It answers one
+  question — *am I OK right now, and what is it costing me?* — and nothing else earns its pixels:
+  the three quota bars with their pace markers, four cost numbers (today · 5-hour · 24h · all
+  time), today's model mix, and a 14-day trend.
+- **`Compact ⇄ Long` toggle** in the header; your choice is remembered. The IDE panel opens
+  **compact** (glancing is the common case), the browser opens **long** (that's where you dig).
+- **Plan chip with a popover** — the plan is static and secondary, which is exactly what earns it
+  a click instead of a card. `Max (5x) · $100/mo · renews Aug 12`, click for subscription status,
+  billing, credits and auto-reload.
+  **Only one disclosure on the page, deliberately.** A one-pager's whole value is that it demands
+  zero interaction; hide the model and project breakdowns behind dropdowns and you have built a
+  worse Long view. Today's model mix is therefore shown inline as a single bar — no click, and no
+  need to silently guess a date range the compact view doesn't have.
+
+### Notes
+- The plan **tier** (5x / 20x) is detected live from the API. Only the **price** is declared —
+  Max 5x is $100/mo, Max 20x is $200/mo — and it renders with a dotted underline rather than the
+  loud dashed-tile treatment, which would be far too noisy on a one-pager.
+- Compact degrades rather than clips: under 720px tall it drops the trend chart, and under 620px
+  it allows scrolling — losing data off the bottom of the screen would be worse than a scrollbar.
+
+---
+
 ## [1.0.0] — 2026-07-14
 
 **First stable release.** Everything below has been in daily use and the numbers have been
@@ -115,6 +141,7 @@ Built and iterated locally; never published. What landed, in order:
   on hover, top deck with plan and price, and three fixed KPI cards (5-hour window, last 24h,
   all time) that do **not** move when the range changes.
 
+[1.1.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v1.1.0
 [1.0.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v1.0.0
 [0.10.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v0.10.0
 [0.9.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v0.9.0
