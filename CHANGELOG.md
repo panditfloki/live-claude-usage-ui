@@ -6,6 +6,29 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.0.0] — 2026-07-14
+
+**First stable release.** Everything below has been in daily use and the numbers have been
+cross-checked against two independent implementations; the shape is settled enough to call it 1.0.
+
+### Changed
+- This dashboard is now explicitly the **long view** — the full, scrolling analysis surface.
+  A **compact one-pager** (everything on a single screen, no scrolling) is planned as a second
+  view over the same data. `parser.js` and `quota.js` stay UI-agnostic precisely so a second
+  front-end costs nothing.
+
+### The 1.0 surface, in one place
+- **Real plan quota** — session / weekly / per-model, with reset countdowns and a **pace
+  indicator** showing where you'd end up at the current burn rate.
+- **Date ranges** — Today / 7d / 30d / All / Custom, re-cutting the *whole* page; a single-day
+  range charts by the hour.
+- **Cost** — three fixed KPI cards (5-hour window · last 24h · all time), per-day stacked token
+  chart with per-model cost on hover, per-project burn, token mix and cache hit rate.
+- **Activity** — 26-week heatmap, streaks, peak hour.
+- Two surfaces, one codebase: a VS Code / Cursor / Antigravity extension, and a standalone web app.
+
+---
+
 ## [0.10.0] — 2026-07-14
 
 ### Added
@@ -92,5 +115,6 @@ Built and iterated locally; never published. What landed, in order:
   on hover, top deck with plan and price, and three fixed KPI cards (5-hour window, last 24h,
   all time) that do **not** move when the range changes.
 
+[1.0.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v1.0.0
 [0.10.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v0.10.0
 [0.9.0]: https://github.com/panditfloki/live-claude-usage-ui/releases/tag/v0.9.0
