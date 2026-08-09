@@ -39,11 +39,17 @@ test('normalises ccusage v20 daily and session contracts without duplication', (
   assert.equal(first.sessions[0].directory, '/work/MATRA');
 });
 
-test('uses an explicit unattributed directory fallback', () => {
+// Rewritten 2026-08-09. The old version asserted `directory === 'unattributed'`,
+// which encoded the defect: it treated ccusage's `directory` as attribution, when
+// that field is really the session file's date folder. Attribution now lives in
+// `folder`/`attributed`, and `directory` is kept only as the raw upstream value.
+test('an unjoined session is explicitly unattributed, with no invented folder', () => {
   const result = normalise({ daily: [], totals: {} }, {
     sessions: [{ sessionId: 's1', directory: null, models: {} }], totals: {},
   });
-  assert.equal(result.sessions[0].directory, 'unattributed');
+  assert.equal(result.sessions[0].attributed, false);
+  assert.equal(result.sessions[0].folder, null);
+  assert.equal(result.sessions[0].cwd, null);
 });
 
 test('maps primary and secondary Codex limits without combining denominators', () => {

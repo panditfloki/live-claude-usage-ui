@@ -529,7 +529,7 @@
     </table>
   </div>
 
-  <div class="card"><h2>By project <span class="r" id="projRange"></span></h2><div id="projects"></div></div>
+  <div class="card"><h2><span id="projTitle">By project</span> <span class="r" id="projRange"></span></h2><div id="projects"></div></div>
 
   <div class="card">
     <h2>Token mix <span class="r" id="mixRange"></span></h2>
@@ -843,19 +843,35 @@ function aggregateCodex() {
   const modelRows = [...perModel.values()].sort((a,b) => b.tokens - a.tokens)
     .map(m => ({ ...m, share:billable ? (m.input + m.output) / billable * 100 : 0 }));
 
+  // Attribution comes from `folder` (the rollout's real cwd), NEVER from
+  // ccusage's `directory` — that field is the session file's date folder, so
+  // using it renders "2026/08/09" as if it were a project. Sessions with no
+  // rollout header on disk are pooled honestly rather than dropped.
   const dirs = new Map();
+  let unattributedCost = 0, unattributedSessions = 0;
   for (const session of DATA?.codex?.sessions || []) {
-    const key = session.directory || 'unattributed';
+    if (!session.attributed || !session.folder) {
+      unattributedCost += session.cost; unattributedSessions++;
+      continue;
+    }
+    const key = session.folder;
     const g = dirs.get(key) || { key, cost:0, tokens:0, sessions:0 };
     g.cost += session.cost; g.tokens += session.tokens; g.sessions++;
     dirs.set(key, g);
   }
+  const attributedCost = [...dirs.values()].reduce((a, g) => a + g.cost, 0);
   const sessionDays = new Set(rows.map(r => r.day));
   const sessions = (DATA?.codex?.sessions || []).filter(s =>
     !s.lastActivity || sessionDays.has(String(s.lastActivity).slice(0,10))).length;
   return {
     tot, days, modelRows, billable, hourly:false,
     projects:[...dirs.values()].sort((a,b) => b.cost - a.cost).slice(0,12),
+    attribution:{
+      cost:attributedCost,
+      unattributedCost,
+      unattributedSessions,
+      folders:dirs.size,
+    },
     sessions, activeDays:rows.length, peakHour:null,
   };
 }
@@ -905,6 +921,7 @@ function aggregateCombined() {
     activeDays:new Set([...claude.evs.map(e => iso(dayStart(e[T.TS]))), ...codex.days.map(d => d.day)]).size,
     claudeProjects:claude.projects,
     codexProjects:codex.projects,
+    codexAttribution:codex.attribution,
     hourly:false,
   };
 }
@@ -1220,6 +1237,7 @@ function drawClaude() {
     `Subagents account for ${usd(DATA.subagents.cost)} of it (${DATA.subagents.turns} turns). `
     + 'Equivalent API cost — a burn proxy, not a bill. Max is flat-rate.';
 
+  el('projTitle').textContent = 'By project';
   el('projRange').textContent = lbl;
   el('mixRange').textContent = lbl;
 
@@ -1292,7 +1310,7 @@ function providerUnavailable() {
   el('tiles').innerHTML = '<div class="empty">Codex data unavailable.</div>';
   el('chart').innerHTML = '<div class="empty">No Codex history source.</div>';
   el('models').innerHTML = '<tr><td colspan="6" class="empty">No Codex model data.</td></tr>';
-  el('projects').innerHTML = '<div class="empty">No Codex directory data.</div>';
+  el('projects').innerHTML = '<div class="empty">No Codex folder data.</div>';
   el('mix').innerHTML = '';
   el('heat').innerHTML = '';
   el('foot').textContent = 'Codex unavailable · ordinary ChatGPT chats are not included';
@@ -1340,18 +1358,33 @@ function drawCodex(combined = false) {
     <td>${m.share.toFixed(1)}%</td><td>${m.cost == null ? '—' : usd(m.cost)}</td></tr>`).join('')
     : '<tr><td colspan="6" class="empty">No activity in this range.</td></tr>';
 
-  const renderProjects = rows => rows.length ? rows.map(p => `
+  const renderProjects = (rows, empty = 'No Codex folder data.') => rows.length ? rows.map(p => `
     <div class="row"><span class="name" title="${p.key}">${projLabel(p.key)}</span>
     <span class="bar"><i data-w="${(p.cost / Math.max(...rows.map(x=>x.cost),1e-9)*100).toFixed(1)}" style="background:var(--accent)"></i></span>
-    <span class="val">${usd(p.cost)}</span></div>`).join('') : '<div class="empty">No attribution data.</div>';
+    <span class="val">${usd(p.cost)}</span></div>`).join('') : `<div class="empty">${empty}</div>`;
+
+  // Sessions whose rollout header is gone from disk cannot be attributed. Say so
+  // and size it — silently dropping them would make the folder split look complete.
+  const attNote = att => {
+    if (!att || !att.unattributedSessions) return '';
+    const total = att.cost + att.unattributedCost;
+    const pct = total ? att.unattributedCost / total * 100 : 0;
+    return `<div class="verdict">${att.unattributedSessions} session${att.unattributedSessions === 1 ? '' : 's'}`
+      + ` with no rollout header on disk · ${usd(att.unattributedCost)} (${pct.toFixed(1)}%) unattributed</div>`;
+  };
+
   if (combined) {
+    el('projTitle').textContent = 'By project';
     el('projRange').textContent = 'separate attribution';
     el('projects').innerHTML = '<div class="provider-head">Claude · selected range</div>'
-      + renderProjects(a.claudeProjects || []) + '<div class="provider-head">Codex directories · all time</div>'
-      + renderProjects(a.codexProjects || []);
+      + renderProjects(a.claudeProjects || [], 'No Claude project data.') + '<div class="provider-head">Codex folders · all time</div>'
+      + renderProjects(a.codexProjects || []) + attNote(a.codexAttribution);
   } else {
+    // Codex attributes by working folder, Claude by project — do not call one the other.
+    el('projTitle').textContent = provider === 'codex' ? 'By folder' : 'By project';
     el('projRange').textContent = 'all time';
-    el('projects').innerHTML = renderProjects(a.projects || []);
+    el('projects').innerHTML = renderProjects(a.projects || [])
+      + (provider === 'codex' ? attNote(a.attribution) : '');
   }
   requestAnimationFrame(() => document.querySelectorAll('.bar > i[data-w]').forEach(i => { i.style.width = i.dataset.w + '%'; }));
 
