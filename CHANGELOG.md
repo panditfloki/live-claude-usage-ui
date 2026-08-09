@@ -6,6 +6,25 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Codex parity:** `Claude | Codex | Combined` provider views in both Compact and Long.
+- Codex daily/model/token/session/directory totals via optional `ccusage 20.0.19` consumption.
+- Latest Codex account-limit percentage and reset time from local session records.
+- Five-minute shared Codex cache, forced refresh, stale fallback and explicit unavailable state.
+- Near-live Codex refresh: transcript write bursts trigger one debounced refresh three seconds
+  after the turn settles; the five-minute timer remains the fallback.
+- Node built-in contract tests; no new runtime dependency.
+
+### Truth labels
+- Codex USD is equivalent API cost — a burn proxy, not a ChatGPT Plus bill.
+- Ordinary ChatGPT web/app conversations are explicitly excluded.
+- Combined quota bars remain separate; no synthetic cross-provider percentage.
+- `ccusage` does not expose per-model cost, so Codex model rows show token share and `—` for cost.
+- GPT colours encode the capability ladder with a hot-to-cool scale: Sol red → Terra orange →
+  Luna gold → GPT-5.5 teal → GPT-5.4 blue → GPT-5.4 Mini slate.
+
 ## [1.1.0] — 2026-07-14
 
 ### Added

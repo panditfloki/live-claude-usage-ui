@@ -1,9 +1,10 @@
-# Mātrā — live Claude usage UI
+# Mātrā — live Claude + Codex usage UI
 
-**मात्रा** — *measure*. Your real Claude plan quota in the status bar, and a full usage
-dashboard in a panel, inside VS Code or any fork (Cursor, Antigravity, Windsurf).
+**मात्रा** — *measure*. Your Claude and Codex plan limits, tokens and equivalent API cost in
+one local dashboard, inside VS Code or any fork (Cursor, Antigravity, Windsurf).
 
 - **Status bar** — live session quota (`47% · 2h 11m`), amber past 80%. Click to open the dashboard.
+- **Provider views** — switch between Claude, Codex and a provenance-preserving Combined view.
 - **Dashboard** — plan-limit bars, cost KPIs, per-day stacked token chart with per-model pricing
   on hover, date-range tabs (All / 30d / 7d / custom), activity heatmap, streaks, per-project
   burn, and cache hit rate.
@@ -21,13 +22,23 @@ your own machine:
 |---|---|
 | Plan quota, reset times, tier | **Your** Claude Code OAuth token, from the OS credential store |
 | Costs, tokens, models, projects | **Your** local transcripts, `~/.claude/projects/**/*.jsonl` |
+| Codex tokens, models, sessions, directories | `ccusage codex … --json` over `~/.codex/sessions/**/*.jsonl` |
+| Codex plan limit and reset | Latest local Codex `token_count.rate_limits` record |
 
 Your token never leaves your machine, is never logged or written to disk, and is sent nowhere
 except `api.anthropic.com`. Clone it, run it, and you see *your* usage against *your* plan.
 
+Codex support never reads ChatGPT browser history or credentials. It covers **Codex only**;
+ordinary ChatGPT web/app conversations are not included. Codex USD is equivalent API cost — a
+burn proxy, not a ChatGPT Plus bill.
+
 ## Install
 
 Requires **Node 18+** and a logged-in **Claude Code**.
+
+Codex history is optional. Install [`ccusage`](https://github.com/ryoppippi/ccusage) globally to
+enable it; if the command is absent or fails, Claude continues working and the Codex view shows an
+explicit unavailable state.
 
 **Option A — install the extension** (no build step). Grab the `.vsix` from the
 [latest release](https://github.com/panditfloki/live-claude-usage-ui/releases/latest):
@@ -125,6 +136,7 @@ that detects which host it is running in. Import them; don't fork them.
 ```
 parser.js   local transcripts → costs, tokens, models, projects, heatmap   (no network)
 quota.js    /api/oauth/{usage,profile} → real plan limits                  (soft-fails)
+codex.js    ccusage history + latest local Codex plan limit                (soft-fails)
 extension.js  status bar + webview panel
 server.js     the same dashboard over HTTP
 media/dashboard.html   one page, two hosts

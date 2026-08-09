@@ -1,8 +1,8 @@
 {
   "name": "claude-usage-meter",
-  "displayName": "Mātrā — Claude Usage",
-  "description": "Live Claude Code usage — burn rate in the status bar, full dashboard in a panel.",
-  "version": "1.1.0",
+  "displayName": "Mātrā — Claude + Codex Usage",
+  "description": "Live Claude and Codex usage — plan limits, tokens and equivalent API cost in one local dashboard.",
+  "version": "1.2.2",
   "publisher": "dydxfx",
   "author": {
     "name": "Pandit Floki",
@@ -79,7 +79,8 @@
   },
   "scripts": {
     "dev": "node server.js",
-    "package": "vsce package"
+    "package": "vsce package",
+    "test": "node --test"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0"

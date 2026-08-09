@@ -1,4 +1,14 @@
+# Private / local-only — MUST stay out of the .vsix (these get attached to public
+# GitHub releases). vsce reads THIS file, not .gitignore, so list them here too.
+plan.json
+CLAUDE.md
+AGENTS.md
+.gitignore
+
+# Dev-only + repo artifacts
 server.js
 .vscodeignore
 node_modules/**
 *.vsix
+agents/**
+test/**

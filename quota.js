@@ -27,17 +27,23 @@ const PROFILE = 'https://api.anthropic.com/api/oauth/profile';
 const TTL_MS = 15 * 60_000;
 const PROFILE_TTL_MS = 6 * 3600_000;   // plan/tier/status is effectively static
 const TIMEOUT_MS = 6_000;
-const BACKOFF_MS = 5 * 60_000;         // 429 with a value already cached — sit it out
+const BACKOFF_MS = 5 * 60_000;         // first 429 with a value already cached
+const BACKOFF_MAX_MS = 40 * 60_000;    // ceiling for the exponential
 const COLD_BACKOFF_MS = 60_000;        // 429 with nothing to show — retry, but gently
 
 // The dashboard runs in two processes at once (dev server + extension host).
 // Without a shared cache they poll independently and double the request rate —
-// which is exactly how the 429 happened. One file, one poller's worth of load.
+// which is exactly how the first 429 happened. One file, one poller's worth of load.
+//
+// ⚠️ The BACKOFF must be shared too, not just the data. Each process keeping its
+// own in-memory nextTryAt caused a live deadlock: once the cache went stale, BOTH
+// processes retried on their own clocks, kept tripping the limiter for each
+// other, and the cache stayed stale for hours. Whoever gets 429'd now writes the
+// backoff to the same file, so the pair behaves like one polite client.
 const CACHE_FILE = path.join(os.tmpdir(), 'claude-usage-meter-quota.json');
 
-let mem = null;          // { at, data }
+let mem = null;          // { at, data, nextTryAt?, failStreak? }
 let profileCache = null; // { at, data }
-let nextTryAt = 0;       // set on 429 — do not hammer a limiter
 
 // Always take the NEWER of our in-memory copy and the file — the other process
 // may have refreshed it since. Preferring `mem` blindly would make one process
@@ -46,15 +52,35 @@ function readCache() {
   let disk = null;
   try {
     const c = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-    if (c && c.at && c.data) disk = c;
+    if (c && (c.at || c.nextTryAt)) disk = c;
   } catch {}
-  if (disk && (!mem || disk.at > mem.at)) mem = disk;
+  if (disk && (!mem || (disk.at || 0) > (mem.at || 0) || (disk.nextTryAt || 0) > (mem.nextTryAt || 0))) {
+    mem = disk;
+  }
   return mem;
 }
 
-function writeCache(entry) {
-  mem = entry;
-  try { fs.writeFileSync(CACHE_FILE, JSON.stringify(entry)); } catch {}
+function writeCache(patch) {
+  // Merge, don't replace — a backoff write must not clobber the cached data,
+  // and a data write resets the backoff (success = the limiter is happy).
+  const cur = readCache() || {};
+  mem = { ...cur, ...patch };
+  try { fs.writeFileSync(CACHE_FILE, JSON.stringify(mem)); } catch {}
+}
+
+function sharedNextTryAt() {
+  const c = readCache();
+  return (c && c.nextTryAt) || 0;
+}
+
+function noteRateLimited() {
+  const c = readCache() || {};
+  const streak = (c.failStreak || 0) + 1;
+  const hasData = !!c.data;
+  // Exponential: 5 → 10 → 20 → 40 min (cold start stays gentle but linear-ish).
+  const base = hasData ? BACKOFF_MS : COLD_BACKOFF_MS;
+  const wait = Math.min(base * Math.pow(2, streak - 1), BACKOFF_MAX_MS);
+  writeCache({ nextTryAt: Date.now() + wait, failStreak: streak });
 }
 
 function keychainToken() {
@@ -122,12 +148,9 @@ async function get(url, tok) {
     });
   } catch { return null; }              // offline, DNS, timeout
   if (res.status === 429) {
-    const ra = Number(res.headers.get('retry-after'));   // observed as 0 — useless
-    // Back off hard only when we already have something to show. On a cold start
-    // there's nothing to serve, so a 5-minute sulk would leave the page blank —
-    // retry soon instead.
-    const base = readCache() ? BACKOFF_MS : COLD_BACKOFF_MS;
-    nextTryAt = Date.now() + (Number.isFinite(ra) && ra > 0 ? ra * 1000 : base);
+    // Its Retry-After header is observed as 0 — useless. Record the strike in
+    // the SHARED cache so the other process backs off with us.
+    noteRateLimited();
     return null;
   }
   if (!res.ok) return null;             // 401 (token rotated) / 404 (endpoint moved)
@@ -183,7 +206,7 @@ function decorate(data) {
 // the feature is gone. A stale percentage is vastly more useful than no bar.
 function stale(reason) {
   const c = readCache();
-  if (!c) return null;
+  if (!c || !c.data) return null;
   return decorate({ ...c.data, stale: true, staleSince: c.at, staleReason: reason });
 }
 
@@ -191,17 +214,20 @@ async function quota({ force = false } = {}) {
   const now = Date.now();
 
   const cached = readCache();
-  if (!force && cached && now - cached.at < TTL_MS) return decorate(cached.data);
+  if (!force && cached && cached.data && now - cached.at < TTL_MS) return decorate(cached.data);
 
-  // Backing off from a 429 — do not touch the endpoint, just serve what we have.
-  if (now < nextTryAt) return stale('rate-limited');
+  // Backing off from a 429 — the backoff is SHARED across processes via the cache
+  // file, so the server and the extension sit it out together instead of taking
+  // turns re-tripping the limiter (the deadlock that once kept the quota stale
+  // for five hours while the endpoint was actually fine).
+  if (now < sharedNextTryAt()) return stale('rate-limited');
 
   const tok = await token();
   if (!tok) return stale('no token');
 
   const usage = await get(USAGE, tok);
   if (!usage || !Array.isArray(usage.limits)) {
-    return stale(now < nextTryAt ? 'rate-limited' : 'unreachable');
+    return stale(now < sharedNextTryAt() ? 'rate-limited' : 'unreachable');
   }
 
   // Plan/tier/status barely changes — refetch it a couple of times a day, not
@@ -258,7 +284,8 @@ async function quota({ force = false } = {}) {
   };
 
   const data = { plan: plan.label, fetchedAt: now, limits, credits, planInfo: plan };
-  writeCache({ at: now, data });
+  // Success clears the shared backoff — the limiter is demonstrably happy again.
+  writeCache({ at: now, data, nextTryAt: 0, failStreak: 0 });
   return decorate(data);
 }
 

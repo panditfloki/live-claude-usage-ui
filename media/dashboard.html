@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mātrā — Claude usage</title>
+<title>Mātrā — Claude + Codex usage</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1117'/%3E%3Cpath d='M13 45a19 19 0 0 1 38 0' fill='none' stroke='%2326303d' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M13 45a19 19 0 0 1 13-18' fill='none' stroke='%234a8bf0' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M32 45 L43 30' stroke='%23e6edf3' stroke-width='3.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='45' r='4' fill='%23e6edf3'/%3E%3C/svg%3E">
 <style>
   /* One stylesheet, two hosts. The --vscode-* vars resolve inside the IDE panel;
@@ -17,6 +17,9 @@
     --dim:    var(--vscode-descriptionForeground, #8b949e);
     --accent: var(--vscode-charts-blue, #4a8bf0);
     --opus: #d29922; --fable: #a371f7; --sonnet: #58a6ff; --haiku: #3fb950;
+    /* GPT capability ladder: hottest/strongest → coolest/lightest. */
+    --sol: #ff5c5c; --terra: #ff9f43; --luna: #ffd166;
+    --gpt55: #7bdcb5; --gpt54: #58a6ff; --gpt54mini: #8b949e;
     --warn: var(--vscode-errorForeground, #f85149);
     --ease: cubic-bezier(.22,.61,.36,1);
   }
@@ -28,6 +31,9 @@
       --line: var(--vscode-editorWidget-border, #d8dee4);
       --fg: var(--vscode-foreground, #1f2328);
       --dim: var(--vscode-descriptionForeground, #59636e);
+      /* #f85149 is GitHub's DARK-mode red — on white it's only 3.35:1 (fails WCAG AA).
+         Light mode needs a darker red: #cf222e is 5.36:1. */
+      --warn: var(--vscode-errorForeground, #cf222e);
     }
   }
   * { box-sizing: border-box; }
@@ -55,7 +61,7 @@
   }
   .brand { display: flex; align-items: baseline; gap: 9px; }
   h1 { font-size: 19px; margin: 0; letter-spacing: -.02em; }
-  .tag { font-size: 11.5px; color: var(--dim); }
+  .tag { font-size: 12px; color: var(--dim); }
   .live { font-size: 11px; color: var(--haiku); }
   .live::before { content: "● "; }
   .live.stale { color: var(--dim); }
@@ -86,15 +92,15 @@
   }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
   .card h2 {
-    font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
+    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
     color: var(--dim); margin: 0 0 11px; display: flex; align-items: center; gap: 8px;
   }
   .card h2 .r { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; }
   .metric { font-size: 28px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-  .sub { color: var(--dim); font-size: 11.5px; margin-top: 3px; }
-  .verdict { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--dim); }
+  .sub { color: var(--dim); font-size: 12px; margin-top: 3px; }
+  .verdict { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); }
   .wide { grid-column: 1 / -1; }
-  .pill { display:inline-block; padding:1px 7px; border-radius:999px; font-size:10.5px; font-weight:600; border:1px solid currentColor; }
+  .pill { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; font-weight:600; border:1px solid currentColor; }
   .pill.est { color: var(--warn); }
   .pill.real { color: var(--haiku); }
 
@@ -112,7 +118,7 @@
     align-items: center;
   }
   .q .lab { grid-row: 1 / span 2; font-size: 12.5px; align-self: center; }
-  .q .lab small { display: block; color: var(--dim); font-size: 11px; }
+  .q .lab small { display: block; color: var(--dim); font-size: 12px; }
   .q .track {
     grid-column: 2; grid-row: 1;
     position: relative; height: 10px; border-radius: 5px; background: var(--line);
@@ -136,7 +142,7 @@
   .q .track .pace.tight { background: var(--opus);  color: var(--opus); }
   .q .track .pace.over  { background: var(--warn);  color: var(--warn); }
   .q .pct { grid-column: 3; grid-row: 1; text-align: right; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
-  .q .note { grid-column: 2 / span 2; grid-row: 2; font-size: 11px; color: var(--dim); }
+  .q .note { grid-column: 2 / span 2; grid-row: 2; font-size: 12px; color: var(--dim); }
   .q .note b.ok    { color: var(--haiku); }
   .q .note b.tight { color: var(--opus); }
   .q .note b.over  { color: var(--warn); }
@@ -147,10 +153,10 @@
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 9px; }
   .tile { background: var(--tile); border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; }
   .tile b { display: block; font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .tile span { color: var(--dim); font-size: 10.5px; }
+  .tile span { color: var(--dim); font-size: 12px; }
   /* A tile whose value the API cannot see — hand-declared, and marked as such. */
   .tile.declared { border-style: dashed; }
-  .tile.declared em { font-style: normal; color: var(--warn); font-size: 9px; letter-spacing: .04em; }
+  .tile.declared em { font-style: normal; color: var(--warn); font-size: 12px; letter-spacing: .04em; }
   /* KPI row sits above the fold; give it a touch more presence. */
   .card.kpi .metric { font-size: 31px; }
 
@@ -164,7 +170,7 @@
 
   /* Stacked per-day chart */
   .chart { position: relative; height: 190px; display: flex; align-items: flex-end; gap: 4px; padding-left: 46px; }
-  .yaxis { position: absolute; left: 0; top: 0; bottom: 22px; width: 44px; font-size: 10px; color: var(--dim); }
+  .yaxis { position: absolute; left: 0; top: 0; bottom: 22px; width: 44px; font-size: 11px; color: var(--dim); }
   .yaxis span { position: absolute; right: 4px; transform: translateY(-50%); font-variant-numeric: tabular-nums; }
   .gl { position: absolute; left: 46px; right: 0; border-top: 1px dashed var(--line); opacity: .5; }
   .col { flex: 1; display: flex; flex-direction: column-reverse; justify-content: flex-start;
@@ -175,13 +181,13 @@
   .col .seg { width: 100%; transition: filter .15s var(--ease); }
   .col:hover .seg { filter: brightness(1.35); }
   .col .lbl { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
-              font-size: 9.5px; color: var(--dim); white-space: nowrap; }
+              font-size: 11px; color: var(--dim); white-space: nowrap; }
   .chart-wrap { padding-bottom: 24px; }
 
   #tip {
     position: fixed; z-index: 50; pointer-events: none; opacity: 0;
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-    padding: 9px 11px; font-size: 12px; box-shadow: 0 8px 26px rgba(0,0,0,.4);
+    padding: 9px 11px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.4);
     transition: opacity .12s var(--ease);
   }
   #tip.on { opacity: 1; }
@@ -200,12 +206,12 @@
   table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   .tbl th, .tbl td { text-align: right; padding: 5px 0; font-variant-numeric: tabular-nums; }
   .tbl th:first-child, .tbl td:first-child { text-align: left; }
-  .tbl th { color: var(--dim); font-weight: 500; font-size: 10.5px; border-bottom: 1px solid var(--line); }
+  .tbl th { color: var(--dim); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; }
   footer {
     margin-top: 18px; padding-top: 12px;
     border-top: 1px solid var(--line);
-    color: var(--dim); font-size: 11px;
+    color: var(--dim); font-size: 12px;
     display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
   }
   footer .legal { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; align-items: baseline; }
@@ -216,13 +222,18 @@
 
   /* ══════════════ VIEW SWITCHING ══════════════ */
   .viewtoggle { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
-  .viewtoggle button {
+  .viewtoggle button, .provider button, .refreshbtn {
     background: none; border: 0; color: var(--dim); cursor: pointer;
     font: inherit; font-size: 12px; padding: 4px 11px; border-radius: 6px;
     transition: background .2s var(--ease), color .2s var(--ease);
   }
-  .viewtoggle button:hover { color: var(--fg); }
-  .viewtoggle button.on { background: var(--accent); color: #fff; }
+  .viewtoggle button:hover, .provider button:hover, .refreshbtn:hover { color: var(--fg); }
+  .viewtoggle button.on, .provider button.on { background: var(--accent); color: #fff; }
+  .provider { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .refreshbtn { border: 1px solid var(--line); background: var(--panel); }
+  .refreshbtn[disabled] { opacity: .55; cursor: wait; }
+  .source-note { color: var(--dim); font-size: 12px; }
+  .provider-head { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 10px 0 5px; }
 
   /* Only one view exists at a time. */
   #compactView { display: none; }
@@ -264,7 +275,7 @@
     transition: border-color .2s var(--ease);
   }
   .planchip > button:hover { border-color: var(--dim); }
-  .planchip .caret { color: var(--dim); font-size: 9px; transition: transform .2s var(--ease); }
+  .planchip .caret { color: var(--dim); font-size: 11px; transition: transform .2s var(--ease); }
   .planchip.open .caret { transform: rotate(180deg); }
   /* A declared figure gets a dotted underline — honest, but quiet enough for a chip.
      The loud dashed-tile treatment would be far too noisy here. */
@@ -273,7 +284,7 @@
     position: absolute; top: calc(100% + 7px); right: 0; z-index: 60;
     min-width: 230px; padding: 11px 13px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    box-shadow: 0 2px 8px rgba(0,0,0,.35);
     opacity: 0; visibility: hidden; transform: translateY(-4px);
     transition: opacity .16s var(--ease), transform .16s var(--ease), visibility .16s;
   }
@@ -282,7 +293,7 @@
   .planchip .pop .r span { color: var(--dim); }
   .planchip .pop .r b { font-weight: 600; }
   .planchip .pop .r b.decl { border-bottom: 1px dotted var(--warn); }
-  .planchip .pop .hint { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--dim); }
+  .planchip .pop .hint { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); }
 
   /* ══════════════ COMPACT LAYOUT ══════════════ */
   /* Every row sizes to its content. Nothing gets a `1fr` — a flexible row is a row
@@ -304,17 +315,17 @@
   .c-quota { display: grid; gap: 14px; }
 
   .c-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-  .c-kpi span { display: block; color: var(--dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
-  .c-kpi span i.est { font-style: normal; color: var(--warn); font-size: 9px; letter-spacing: .04em; }
+  .c-kpi span { display: block; color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .c-kpi span i.est { font-style: normal; color: var(--warn); font-size: 12px; letter-spacing: .04em; }
   .c-kpi b { display: block; font-size: 25px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 3px; }
-  .c-kpi small { display: block; color: var(--dim); font-size: 11px; }
+  .c-kpi small { display: block; color: var(--dim); font-size: 12px; }
 
   /* Today's model mix — one bar, zero clicks. A dropdown here would have to guess
      a date range, and whichever it guessed would mislead half the time. */
   .c-strip { display: grid; gap: 8px; }
   .c-mix { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); }
   .c-mix > i { height: 100%; transition: width .6s var(--ease); }
-  .c-mixlab { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--dim); }
+  .c-mixlab { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dim); }
   .c-mixlab .k { display: flex; align-items: center; gap: 6px; }
 
   /* The bars need a REAL height. As a `1fr` grid row they collapsed toward zero the
@@ -327,10 +338,10 @@
     opacity: .75; transition: height .5s var(--ease);
   }
   .c-sparkbars > i:last-child { opacity: 1; background: var(--opus); }
-  .c-sparklab { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); }
+  .c-sparklab { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); }
 
   .c-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-            font-size: 10.5px; color: var(--dim); border: 0; padding: 0; margin: 0; }
+            font-size: 12px; color: var(--dim); border: 0; padding: 0; margin: 0; }
   .c-foot .legal a { color: var(--dim); text-decoration: none; border-bottom: 1px dotted var(--line); }
   .c-foot .legal a:hover { color: var(--fg); }
 
@@ -349,6 +360,9 @@
     .planchip > button { width: 100%; justify-content: space-between; }
     .planchip .pop { right: 0; left: 0; min-width: 0; }
     .viewtoggle { order: 4; }
+    .provider { order: 5; width: 100%; }
+    .provider button { flex: 1; }
+    .refreshbtn { order: 6; }
 
     /* Quota: label on its own line, bar below it — no 190px column to fight. */
     .q {
@@ -364,7 +378,7 @@
 
     .c-kpis { grid-template-columns: repeat(2, 1fr); gap: 12px; }   /* 2×2, not 4 across */
     .c-kpi b { font-size: 22px; }
-    .c-kpi span { font-size: 9.5px; }
+    .c-kpi span { font-size: 12px; }
     .c-quota, .c-kpis, .c-strip, .c-spark { padding: 12px 13px; }
     .c-sparkbars { height: 52px; }
     .c-foot { flex-direction: column; align-items: flex-start; gap: 4px; }
@@ -405,6 +419,13 @@
     <button data-v="long">Long</button>
   </div>
 
+  <div class="provider" id="providerToggle" aria-label="Usage provider">
+    <button data-p="claude">Claude</button>
+    <button data-p="codex">Codex</button>
+    <button data-p="combined">Combined</button>
+  </div>
+  <button class="refreshbtn" id="refreshBtn" title="Refresh Codex data now">Refresh</button>
+
   <div class="range">
     <div class="tabs" id="tabs">
       <button data-r="today">Today</button>
@@ -425,10 +446,10 @@
   <section class="c-quota" id="cQuota"></section>
 
   <section class="c-kpis">
-    <div class="c-kpi"><span>Today</span><b id="cToday">—</b><small id="cTodaySub">—</small></div>
-    <div class="c-kpi"><span>5-hour window <i class="est">est</i></span><b id="cBlock">—</b><small id="cBlockSub">—</small></div>
-    <div class="c-kpi"><span>Last 24 hours</span><b id="cDay">—</b><small id="cDaySub">—</small></div>
-    <div class="c-kpi"><span>All time</span><b id="cAll">—</b><small id="cAllSub">—</small></div>
+    <div class="c-kpi"><span id="cTodayLabel">Today</span><b id="cToday">—</b><small id="cTodaySub">—</small></div>
+    <div class="c-kpi"><span id="cBlockLabel">5-hour window <i class="est">est</i></span><b id="cBlock">—</b><small id="cBlockSub">—</small></div>
+    <div class="c-kpi"><span id="cDayLabel">Last 24 hours</span><b id="cDay">—</b><small id="cDaySub">—</small></div>
+    <div class="c-kpi"><span id="cAllLabel">All time</span><b id="cAll">—</b><small id="cAllSub">—</small></div>
   </section>
 
   <section class="c-strip">
@@ -462,21 +483,21 @@
 
   <!-- KPIs. Fixed windows — they do NOT move when the range tabs change. -->
   <div class="card kpi">
-    <h2>Local 5-hour window <span class="pill est">estimated</span></h2>
+    <h2 id="blockTitle">Local 5-hour window <span class="pill est">estimated</span></h2>
     <div class="metric" id="blockCost">—</div>
     <div class="sub" id="blockSub">no activity</div>
     <div class="verdict">Reconstructed from transcript timestamps — a different thing from the real session % below.</div>
   </div>
 
   <div class="card kpi">
-    <h2>Last 24 hours <span class="r">fixed</span></h2>
+    <h2 id="dayTitle">Last 24 hours <span class="r">fixed</span></h2>
     <div class="metric" id="dayCost">—</div>
     <div class="sub" id="daySub">—</div>
     <div class="verdict" id="dayVerdict">—</div>
   </div>
 
   <div class="card kpi">
-    <h2>All time <span class="r">fixed</span></h2>
+    <h2 id="allTitle">All time <span class="r">fixed</span></h2>
     <div class="metric" id="allCost">—</div>
     <div class="sub" id="allSub">—</div>
     <div class="verdict" id="allVerdict">—</div>
@@ -549,7 +570,11 @@ const usd = n => '$' + (n < 100 ? n.toFixed(2) : Math.round(n).toLocaleString())
 const num = n => n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M'
                : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(Math.round(n));
 const hourLbl = h => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
-const MODEL_HUE = { opus:'var(--opus)', fable:'var(--fable)', sonnet:'var(--sonnet)', haiku:'var(--haiku)' };
+const MODEL_HUE = {
+  opus:'var(--opus)', fable:'var(--fable)', sonnet:'var(--sonnet)', haiku:'var(--haiku)',
+  sol:'var(--sol)', terra:'var(--terra)', luna:'var(--luna)', 'gpt-5.5':'var(--gpt55)',
+  'gpt-5.4-mini':'var(--gpt54mini)', 'gpt-5.4':'var(--gpt54)',
+};
 const hue = m => MODEL_HUE[Object.keys(MODEL_HUE).find(k => m.includes(k))] || 'var(--dim)';
 const short = m => m.replace('claude-', '').replace(/-\d{8}$/, '');
 
@@ -623,6 +648,18 @@ function pace(l) {
     capsAt: capsAt && capsAt < l.resetsAt ? capsAt : null,
     unit: l.group === 'session' ? 'the 5-hour window' : 'the week',
   };
+}
+
+// When there is no projection, SAY WHY. "gathering pace data…" read like the app
+// was collecting history — it isn't, and it never does. It just cannot divide by
+// a window that has barely started.
+function noPaceReason(l) {
+  if (!l.resetsAt || !l.windowMs) return 'no active window';
+  const remaining = l.resetsAt - Date.now();
+  if (remaining <= 0) return 'window has reset';
+  if (!l.percent) return 'nothing used in this window yet';
+  const elapsedPct = (l.windowMs - remaining) / l.windowMs * 100;
+  return `too early to project — only ${elapsedPct.toFixed(0)}% of ${l.group === 'session' ? 'the 5-hour window' : 'the week'} has passed`;
 }
 
 // Count-up so a changing figure reads as movement, not a silent swap.
@@ -770,6 +807,108 @@ function aggregate() {
   };
 }
 
+function selectedCodexDays() {
+  const rows = DATA?.codex?.daily || [];
+  if (!rows.length) return [];
+  const today = iso(dayStart(Date.now()));
+  let lo = rows[0].day, hi = today;
+  if (range.mode === 'today') lo = today;
+  else if (range.mode === 'custom' && range.from && range.to) {
+    lo = range.from; hi = range.to;
+  } else if (range.mode !== 'all') {
+    const d = dayStart(Date.now());
+    d.setDate(d.getDate() - (Number(range.mode) - 1));
+    lo = iso(d);
+  }
+  return rows.filter(row => row.day >= lo && row.day <= hi);
+}
+
+function aggregateCodex() {
+  const rows = selectedCodexDays();
+  const tot = { cost:0, input:0, output:0, reasoningOutput:0, cacheWrite:0, cacheRead:0, tokens:0 };
+  const perModel = new Map();
+  const days = rows.map(row => {
+    for (const k of Object.keys(tot)) tot[k] += Number(row[k]) || 0;
+    const byModel = new Map();
+    for (const model of row.models || []) {
+      const g = perModel.get(model.name) || { key:model.name, input:0, output:0, reasoningOutput:0, tokens:0, cost:null };
+      g.input += model.input; g.output += model.output;
+      g.reasoningOutput += model.reasoningOutput; g.tokens += model.tokens;
+      perModel.set(model.name, g);
+      byModel.set(model.name, { tokens:model.input + model.output, cost:null });
+    }
+    return { day:row.day, cost:row.cost, tokens:row.input + row.output, byModel };
+  });
+  const billable = tot.input + tot.output;
+  const modelRows = [...perModel.values()].sort((a,b) => b.tokens - a.tokens)
+    .map(m => ({ ...m, share:billable ? (m.input + m.output) / billable * 100 : 0 }));
+
+  const dirs = new Map();
+  for (const session of DATA?.codex?.sessions || []) {
+    const key = session.directory || 'unattributed';
+    const g = dirs.get(key) || { key, cost:0, tokens:0, sessions:0 };
+    g.cost += session.cost; g.tokens += session.tokens; g.sessions++;
+    dirs.set(key, g);
+  }
+  const sessionDays = new Set(rows.map(r => r.day));
+  const sessions = (DATA?.codex?.sessions || []).filter(s =>
+    !s.lastActivity || sessionDays.has(String(s.lastActivity).slice(0,10))).length;
+  return {
+    tot, days, modelRows, billable, hourly:false,
+    projects:[...dirs.values()].sort((a,b) => b.cost - a.cost).slice(0,12),
+    sessions, activeDays:rows.length, peakHour:null,
+  };
+}
+
+function aggregateCombined() {
+  const claude = aggregate();
+  const codex = aggregateCodex();
+  const perDay = new Map();
+  for (const e of claude.evs) {
+    const day = iso(dayStart(e[T.TS]));
+    const g = perDay.get(day) || { day, cost:0, tokens:0, byModel:new Map() };
+    g.cost += e[T.COST]; g.tokens += e[T.IN] + e[T.OUT];
+    const name = `Claude · ${DATA.dict.models[e[T.M]]}`;
+    const m = g.byModel.get(name) || { tokens:0, cost:0 };
+    m.tokens += e[T.IN] + e[T.OUT]; m.cost += e[T.COST];
+    g.byModel.set(name, m); perDay.set(day, g);
+  }
+  for (const d of codex.days) {
+    const g = perDay.get(d.day) || { day:d.day, cost:0, tokens:0, byModel:new Map() };
+    g.cost += d.cost; g.tokens += d.tokens;
+    for (const [name, m] of d.byModel) {
+      const key = `Codex · ${name}`;
+      const cur = g.byModel.get(key) || { tokens:0, cost:null };
+      cur.tokens += m.tokens; cur.cost = null;
+      g.byModel.set(key, cur);
+    }
+    perDay.set(d.day, g);
+  }
+  const combinedBillable = claude.billable + codex.billable;
+  const modelRows = [
+    ...claude.modelRows.map(m => ({ ...m, key:`Claude · ${m.key}`, provider:'claude' })),
+    ...codex.modelRows.map(m => ({ ...m, key:`Codex · ${m.key}`, provider:'codex', turns:null })),
+  ].map(m => ({ ...m, share:combinedBillable ? (m.input + m.output) / combinedBillable * 100 : 0 }))
+    .sort((a,b) => (b.input + b.output) - (a.input + a.output));
+  const cost = claude.tot.cost + codex.tot.cost;
+  return {
+    ...codex,
+    tot:{
+      cost, input:claude.tot.input + codex.tot.input, output:claude.tot.output + codex.tot.output,
+      reasoningOutput:codex.tot.reasoningOutput, cacheWrite:claude.tot.cacheWrite + codex.tot.cacheWrite,
+      cacheRead:claude.tot.cacheRead + codex.tot.cacheRead, turns:claude.tot.turns,
+    },
+    billable:combinedBillable,
+    days:[...perDay.values()].sort((a,b) => a.day.localeCompare(b.day)),
+    modelRows,
+    sessions:claude.sessions + codex.sessions,
+    activeDays:new Set([...claude.evs.map(e => iso(dayStart(e[T.TS]))), ...codex.days.map(d => d.day)]).size,
+    claudeProjects:claude.projects,
+    codexProjects:codex.projects,
+    hourly:false,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
@@ -808,7 +947,7 @@ function renderQuota(q) {
     // 13% used with only 14% of the week gone is a different story entirely.
     const tone = !p ? '' : p.projected > 95 ? 'over' : p.projected > 70 ? 'tight' : 'ok';
     const note = !p
-      ? '<span class="dim">gathering pace data…</span>'
+      ? `<span class="dim">${noPaceReason(l)}</span>`
       : `${l.percent}% used · ${p.elapsedPct.toFixed(0)}% of ${p.unit} gone · `
         + (p.capsAt
             ? `<b class="over">on pace to hit the cap around ${clockAt(p.capsAt)}</b>`
@@ -839,7 +978,8 @@ function renderQuota(q) {
     + 'The pace marker (▾) is where you would END UP at the current burn rate — it assumes a constant '
       + 'rate and your usage is bursty, so treat it as a pace indicator, not a forecast.';
 
-  renderDeck(q);
+  if (q.planInfo) renderDeck(q);
+  else renderCodexDeck();
 }
 
 // Top deck. Every tile is tagged live or declared — silently mixing the two is
@@ -886,6 +1026,35 @@ function renderDeck(q) {
      </div>`).join('');
 }
 
+function renderCodexDeck(combined = false) {
+  const c = DATA?.codex;
+  el('deckPlan').textContent = combined ? 'Claude + Codex' : (c?.quota?.plan || 'Codex');
+  el('deckBlurb').textContent = combined
+    ? 'Two flat-rate subscriptions · quota limits stay separate'
+    : 'ChatGPT plan · Codex usage only';
+  const tiles = [];
+  if (c?.source?.version) tiles.push(['Source', `ccusage ${c.source.version}`, 1]);
+  tiles.push(['Cost basis', 'API equivalent', 1]);
+  tiles.push(['ChatGPT chats', 'Not included', 1]);
+  el('deckTiles').innerHTML = tiles.map(([k,v]) =>
+    `<div class="tile"><span>${k}</span><b>${v}</b></div>`).join('');
+}
+
+function renderProviderQuota() {
+  if (provider === 'claude') return renderQuota(DATA.quota);
+  if (provider === 'codex') return renderQuota(DATA.codex?.quota || null);
+  const claude = DATA.quota?.limits || [];
+  const codexLimits = DATA.codex?.quota?.limits || [];
+  renderQuota({
+    plan:'separate limits', fetchedAt:Date.now(), limits:[...claude, ...codexLimits],
+    combined:true,
+  });
+  renderCodexDeck(true);
+  el('planPill').textContent = 'Claude + Codex';
+  el('quotaVerdict').textContent = 'These are separate account limits with separate denominators. '
+    + 'They are shown together for visibility and are never averaged into a synthetic percentage.';
+}
+
 const tip = el('tip');
 function showTip(html, ev) {
   tip.innerHTML = html;
@@ -899,7 +1068,7 @@ function showTip(html, ev) {
 }
 const hideTip = () => tip.classList.remove('on');
 
-function renderChart(a) {
+function renderChart(a, { modelCost = true } = {}) {
   const box = el('chart');
   // Hourly buckets already carry a printable label ("9 AM"); daily ones are ISO.
   const bucketLbl = d => a.hourly ? d.day : fmtDay(d.day);
@@ -913,10 +1082,24 @@ function renderChart(a) {
   const pow = Math.pow(10, Math.floor(Math.log10(max)));
   const top = Math.ceil(max / (pow / 2)) * (pow / 2);
 
+  // A gridline and its own label must come from ONE formula or they drift apart.
+  // They used to differ (px vs %), so the top label sat 8px above its line and
+  // half of it spilled out of the chart onto the card title. .yaxis is already
+  // inset 22px from the bottom, so it takes the offset without the 22.
+  const PLOT_H = 190 - 22 - 8;
   const grid = [0, .25, .5, .75, 1].map(f => `
-    <div class="gl" style="bottom:${22 + f * (190 - 22 - 8)}px"></div>`).join('');
+    <div class="gl" style="bottom:${22 + f * PLOT_H}px"></div>`).join('');
   const axis = [0, .25, .5, .75, 1].map(f =>
-    `<span style="bottom:${f * 100}%">${f ? num(top * f) : '0'}</span>`).join('');
+    `<span style="bottom:${f * PLOT_H}px">${f ? num(top * f) : '0'}</span>`).join('');
+
+  // The x-axis labels are 11px, not 9.5px, so they need real room. Thin the axis
+  // until every printed label has ~46px to itself — the old rule printed all 32
+  // days unconditionally, which only fit because the type was too small to read.
+  // Falls back to a count rule when the chart is hidden and cannot be measured.
+  const plotW = box.clientWidth - 46;
+  const lblStep = plotW > 0
+    ? Math.max(1, Math.ceil(46 / (plotW / a.days.length)))
+    : Math.max(1, Math.ceil(a.days.length / 14));
 
   box.innerHTML = grid + `<div class="yaxis">${axis}</div>` +
     a.days.map((d, i) => {
@@ -925,7 +1108,7 @@ function renderChart(a) {
         .sort((x, y) => y[1].tokens - x[1].tokens)
         .map(([m, v]) => `<div class="seg" style="height:${v.tokens / Math.max(d.tokens,1) * 100}%;background:${hue(m)}"></div>`)
         .join('');
-      const showLbl = a.days.length <= 32 || i % Math.ceil(a.days.length / 14) === 0;
+      const showLbl = i % lblStep === 0;
       return `<div class="col" data-i="${i}">
         <div class="stack" style="height:${h}%;animation-delay:${Math.min(i * 12, 320)}ms">${segs}</div>
         ${showLbl ? `<span class="lbl">${bucketLbl(d)}</span>` : ''}
@@ -940,11 +1123,11 @@ function renderChart(a) {
         return;
       }
       const rows = [...d.byModel.entries()]
-        .sort((x, y) => y[1].cost - x[1].cost)
+        .sort((x, y) => (y[1].cost || 0) - (x[1].cost || 0) || y[1].tokens - x[1].tokens)
         .map(([m, v]) => `<tr>
             <td class="m"><span class="dot" style="background:${hue(m)}"></span>${short(m)}</td>
             <td class="t">${num(v.tokens)}</td>
-            <td class="c">${usd(v.cost)}</td></tr>`).join('');
+            <td class="c">${modelCost && v.cost != null ? usd(v.cost) : '—'}</td></tr>`).join('');
       showTip(`<div class="d">${bucketLbl(d)}</div><table>${rows}</table>
         <div class="tot"><table><tr>
           <td class="m"><b>Total</b></td>
@@ -981,8 +1164,12 @@ function renderHeat(d) {
   });
 }
 
-function draw() {
+function drawClaude() {
   if (!DATA) return;
+  renderHeat(DATA);
+  el('blockTitle').innerHTML = 'Local 5-hour window <span class="pill est">estimated</span>';
+  el('dayTitle').innerHTML = 'Last 24 hours <span class="r">fixed</span>';
+  el('allTitle').innerHTML = 'All time <span class="r">fixed</span>';
   const a = aggregate();
   const lbl = rangeLabel();
   el('ovRange').textContent = lbl;
@@ -1073,6 +1260,124 @@ function draw() {
     + new Date(DATA.generatedAt).toLocaleTimeString();
 }
 
+function renderDailyHeat(rows) {
+  const map = new Map(rows.map(d => [d.day, d]));
+  const end = dayStart(Date.now()), start = dayStart(Date.now());
+  start.setDate(start.getDate() - 181);
+  const cells = [];
+  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const day = iso(d), row = map.get(day);
+    cells.push({ day, tokens:row?.tokens || 0, cost:row?.cost || 0 });
+  }
+  const max = Math.max(...cells.map(x => x.tokens), 1);
+  el('heat').innerHTML = cells.map(h => {
+    const a = h.tokens ? .18 + .82 * Math.sqrt(h.tokens / max) : 0;
+    const bg = a ? `background:color-mix(in srgb, var(--accent) ${Math.round(a*100)}%, transparent)` : '';
+    return `<i data-day="${h.day}" style="${bg}" title="${fmtDay(h.day)} — ${num(h.tokens)} tokens, ${usd(h.cost)}"></i>`;
+  }).join('');
+  el('heat').querySelectorAll('i').forEach(cell => cell.addEventListener('click', () => {
+    range = { mode:'custom', from:cell.dataset.day, to:cell.dataset.day };
+    el('from').value = range.from; el('to').value = range.to; syncTabs(); draw();
+  }));
+}
+
+function providerUnavailable() {
+  el('deckPlan').textContent = 'Codex unavailable';
+  el('deckBlurb').textContent = DATA?.codex?.staleReason || 'ccusage data is unavailable';
+  el('deckTiles').innerHTML = '';
+  el('quota').innerHTML = '';
+  el('quotaVerdict').textContent = 'Claude remains fully available. Install or restore ccusage to enable Codex history.';
+  for (const id of ['blockCost','dayCost','allCost']) el(id).textContent = '—';
+  for (const id of ['blockSub','daySub','allSub','dayVerdict','allVerdict','chartSub','cacheVerdict','heatSub']) el(id).textContent = '—';
+  el('tiles').innerHTML = '<div class="empty">Codex data unavailable.</div>';
+  el('chart').innerHTML = '<div class="empty">No Codex history source.</div>';
+  el('models').innerHTML = '<tr><td colspan="6" class="empty">No Codex model data.</td></tr>';
+  el('projects').innerHTML = '<div class="empty">No Codex directory data.</div>';
+  el('mix').innerHTML = '';
+  el('heat').innerHTML = '';
+  el('foot').textContent = 'Codex unavailable · ordinary ChatGPT chats are not included';
+}
+
+function drawCodex(combined = false) {
+  if (!DATA?.codex?.available && !combined) return providerUnavailable();
+  const a = combined ? aggregateCombined() : aggregateCodex();
+  const lbl = rangeLabel();
+  el('blockTitle').innerHTML = `Today <span class="r">${combined ? 'combined' : 'Codex'}</span>`;
+  el('dayTitle').innerHTML = `Selected range <span class="r">${lbl}</span>`;
+  el('allTitle').innerHTML = `All time <span class="r">${combined ? 'combined' : 'Codex'}</span>`;
+  el('ovRange').textContent = lbl; el('chartRange').textContent = lbl;
+  el('modelRange').textContent = lbl; el('mixRange').textContent = lbl;
+
+  const codexToday = (DATA.codex?.daily || []).find(d => d.day === iso(dayStart(Date.now())));
+  const claudeToday = combined ? aggregate().evs.filter(e => iso(dayStart(e[T.TS])) === iso(dayStart(Date.now()))) : [];
+  const todayCost = (codexToday?.cost || 0) + claudeToday.reduce((s,e) => s + e[T.COST], 0);
+  const allCost = combined ? DATA.totals.cost + (DATA.codex?.totals?.cost || 0) : (DATA.codex?.totals?.cost || 0);
+  animate(el('blockCost'), todayCost, usd);
+  el('blockSub').textContent = 'calendar day · equivalent API cost';
+  animate(el('dayCost'), a.tot.cost, usd);
+  el('daySub').textContent = `${num(a.billable)} input + output tokens`;
+  el('dayVerdict').textContent = 'Equivalent API cost — a burn proxy, not a bill.';
+  animate(el('allCost'), allCost, usd);
+  el('allSub').textContent = combined
+    ? `${DATA.stats.sessions + (DATA.codex?.sessions?.length || 0)} local sessions`
+    : `${DATA.codex?.sessions?.length || 0} local Codex sessions`;
+  el('allVerdict').textContent = combined
+    ? 'Claude and Codex equivalent costs are summed; their quotas remain separate.'
+    : 'Ordinary ChatGPT web/app conversations are not included.';
+
+  el('tiles').innerHTML = [
+    ['Equivalent cost', usd(a.tot.cost)],
+    ['Input', num(a.tot.input)], ['Output', num(a.tot.output)],
+    ['Reasoning', num(a.tot.reasoningOutput || 0)], ['Cache read', num(a.tot.cacheRead)],
+    ['Active days', a.activeDays], ['Sessions', a.sessions],
+    ['Providers', combined ? '2' : 'Codex'],
+  ].map(([k,v]) => `<div class="tile"><span>${k}</span><b>${v}</b></div>`).join('');
+
+  renderChart(a, { modelCost:combined ? false : false });
+  el('models').innerHTML = a.modelRows.length ? a.modelRows.map(m => `
+    <tr><td><span class="dot" style="background:${hue(m.key)}"></span>${short(m.key)}</td>
+    <td>${m.turns == null ? '—' : m.turns}</td><td>${num(m.input)}</td><td>${num(m.output)}</td>
+    <td>${m.share.toFixed(1)}%</td><td>${m.cost == null ? '—' : usd(m.cost)}</td></tr>`).join('')
+    : '<tr><td colspan="6" class="empty">No activity in this range.</td></tr>';
+
+  const renderProjects = rows => rows.length ? rows.map(p => `
+    <div class="row"><span class="name" title="${p.key}">${projLabel(p.key)}</span>
+    <span class="bar"><i data-w="${(p.cost / Math.max(...rows.map(x=>x.cost),1e-9)*100).toFixed(1)}" style="background:var(--accent)"></i></span>
+    <span class="val">${usd(p.cost)}</span></div>`).join('') : '<div class="empty">No attribution data.</div>';
+  if (combined) {
+    el('projRange').textContent = 'separate attribution';
+    el('projects').innerHTML = '<div class="provider-head">Claude · selected range</div>'
+      + renderProjects(a.claudeProjects || []) + '<div class="provider-head">Codex directories · all time</div>'
+      + renderProjects(a.codexProjects || []);
+  } else {
+    el('projRange').textContent = 'all time';
+    el('projects').innerHTML = renderProjects(a.projects || []);
+  }
+  requestAnimationFrame(() => document.querySelectorAll('.bar > i[data-w]').forEach(i => { i.style.width = i.dataset.w + '%'; }));
+
+  const mix = [
+    ['Cache read',a.tot.cacheRead,'var(--haiku)'], ['Cache write',a.tot.cacheWrite,'var(--opus)'],
+    ['Reasoning',a.tot.reasoningOutput || 0,'var(--fable)'], ['Output',a.tot.output,'var(--fable)'],
+    ['Input',a.tot.input,'var(--sonnet)'],
+  ];
+  const max = Math.max(...mix.map(x=>x[1]),1);
+  el('mix').innerHTML = mix.map(([n,v,c]) => `<div class="row"><span class="name">${n}</span>
+    <span class="bar"><i data-w="${(v/max*100).toFixed(1)}" style="background:${c}"></i></span><span class="val">${num(v)}</span></div>`).join('');
+  el('cacheVerdict').textContent = 'Codex reasoning and cache tokens are shown separately; total USD remains API-equivalent.';
+  renderDailyHeat(combined ? a.days : DATA.codex.daily);
+  el('heatSub').textContent = `${combined ? 'Combined local activity' : 'Codex activity'} · last 26 weeks`;
+  el('foot').textContent = combined
+    ? 'Claude transcripts + Codex via ccusage · ordinary ChatGPT chats excluded'
+    : `Codex via ccusage ${DATA.codex.source.version || ''} · ordinary ChatGPT chats excluded`;
+}
+
+function draw() {
+  if (!DATA) return;
+  renderProviderQuota();
+  if (provider === 'claude') drawClaude();
+  else drawCodex(provider === 'combined');
+}
+
 function syncTabs() {
   el('tabs').querySelectorAll('button').forEach(b =>
     b.classList.toggle('on', b.dataset.r === range.mode));
@@ -1109,8 +1414,12 @@ for (const id of ['from', 'to']) {
 // One screen, no scrolling. It answers exactly one question: am I OK right now,
 // and what is it costing me? Everything cut from here is one click away in Long.
 
-function renderCompact() {
+function renderClaudeCompact() {
   if (!DATA) return;
+  el('cTodayLabel').textContent = 'Today';
+  el('cBlockLabel').innerHTML = '5-hour window <i class="est">est</i>';
+  el('cDayLabel').textContent = 'Last 24 hours';
+  el('cAllLabel').textContent = 'All time';
   const q = DATA.quota;
 
   // ── plan chip: tier is LIVE (from the API); price and renewal are DECLARED ──
@@ -1146,7 +1455,7 @@ function renderCompact() {
     : q.limits.map(l => {
       const p = pace(l);
       const tone = !p ? '' : p.projected > 95 ? 'over' : p.projected > 70 ? 'tight' : 'ok';
-      const note = !p ? '<span class="dim">gathering pace data…</span>'
+      const note = !p ? `<span class="dim">${noPaceReason(l)}</span>`
         : (p.capsAt
             ? `<b class="over">on pace to hit the cap around ${clockAt(p.capsAt)}</b>`
             : `on pace for <b class="${tone}">${Math.round(p.projected)}%</b>`);
@@ -1212,6 +1521,85 @@ function renderCompact() {
   el('cFoot').textContent = 'updated ' + new Date(DATA.generatedAt).toLocaleTimeString();
 }
 
+function compactQuota(qs) {
+  const limits = qs.flatMap(q => q?.limits || []);
+  el('cQuota').innerHTML = limits.length ? limits.map(l => {
+    const p = pace(l), tone = !p ? '' : p.projected > 95 ? 'over' : p.projected > 70 ? 'tight' : 'ok';
+    const note = !p ? `<span class="dim">${noPaceReason(l)}</span>`
+      : p.capsAt ? `<b class="over">on pace to hit the cap around ${clockAt(p.capsAt)}</b>`
+      : `on pace for <b class="${tone}">${Math.round(p.projected)}%</b>`;
+    return `<div class="q ${l.percent >= 80 ? 'warn' : ''}"><div class="lab">${l.label}
+      <small>${l.resetsAt ? `${until(l.resetsAt)} left · ${clockAt(l.resetsAt)}` : ''}</small></div>
+      <div class="track"><i data-w="${Math.min(100,l.percent)}"></i>
+      ${p ? `<span class="pace ${tone}" style="left:${Math.min(100,p.projected).toFixed(1)}%"></span>` : ''}</div>
+      <div class="pct">${l.percent}%</div><div class="note">${note}</div></div>`;
+  }).join('') : '<div class="empty">Codex quota unavailable — history is unaffected.</div>';
+  requestAnimationFrame(() => el('cQuota').querySelectorAll('.track > i').forEach(i => { i.style.width = i.dataset.w + '%'; }));
+}
+
+function renderCodexCompact(combined = false) {
+  const c = DATA.codex;
+  if (!c?.available && !combined) {
+    compactQuota([c?.quota]);
+    el('chipText').textContent = 'Codex unavailable';
+    el('planPop').innerHTML = '<div class="hint">Claude is unaffected. Ordinary ChatGPT chats are not a fallback source.</div>';
+    for (const id of ['cToday','cBlock','cDay','cAll']) el(id).textContent = '—';
+    el('cMix').innerHTML = ''; el('cMixLab').textContent = c?.staleReason || 'ccusage unavailable';
+    el('cSpark').innerHTML = ''; el('cSparkLab').textContent = 'no Codex history';
+    el('cFoot').textContent = 'ordinary ChatGPT chats are not included';
+    return;
+  }
+  el('chipText').textContent = combined ? 'Claude + Codex · separate limits' : `${c?.quota?.plan || 'Codex'} · Codex only`;
+  el('planPop').innerHTML = '<div class="hint">Equivalent API cost is a burn proxy, not a bill. '
+    + 'Ordinary ChatGPT web/app conversations are not included.</div>';
+  compactQuota(combined ? [DATA.quota,c?.quota] : [c?.quota]);
+  el('cTodayLabel').textContent = 'Today';
+  el('cBlockLabel').textContent = 'Selected range';
+  el('cDayLabel').textContent = 'Last 30 days';
+  el('cAllLabel').textContent = 'All time';
+
+  const today = iso(dayStart(Date.now()));
+  const codexToday = (c?.daily || []).find(d => d.day === today);
+  const selected = combined ? aggregateCombined() : aggregateCodex();
+  const monthStart = dayStart(Date.now()); monthStart.setDate(monthStart.getDate() - 29);
+  const monthDay = iso(monthStart);
+  const codex30 = (c?.daily || []).filter(d => d.day >= monthDay).reduce((s,d) => s + d.cost,0);
+  const claudeTodayE = combined ? DATA.events.filter(e => iso(dayStart(e[T.TS])) === today) : [];
+  const claude30 = combined ? DATA.events.filter(e => e[T.TS] >= monthStart.getTime()).reduce((s,e)=>s+e[T.COST],0) : 0;
+  const todayCost = (codexToday?.cost || 0) + claudeTodayE.reduce((s,e)=>s+e[T.COST],0);
+  const allCost = (c?.totals?.cost || 0) + (combined ? DATA.totals.cost : 0);
+  animate(el('cToday'),todayCost,usd); el('cTodaySub').textContent = 'calendar day';
+  animate(el('cBlock'),selected.tot.cost,usd); el('cBlockSub').textContent = rangeLabel();
+  animate(el('cDay'),codex30 + claude30,usd); el('cDaySub').textContent = 'calendar days';
+  animate(el('cAll'),allCost,usd); el('cAllSub').textContent = 'equivalent API cost';
+
+  const modelMix = new Map();
+  for (const m of codexToday?.models || []) modelMix.set(`Codex · ${m.name}`, m.input + m.output);
+  if (combined) for (const e of claudeTodayE) {
+    const name = `Claude · ${DATA.dict.models[e[T.M]]}`;
+    modelMix.set(name,(modelMix.get(name)||0) + e[T.IN] + e[T.OUT]);
+  }
+  const mixRows = [...modelMix.entries()].sort((a,b)=>b[1]-a[1]);
+  const mixTotal = mixRows.reduce((s,x)=>s+x[1],0);
+  el('cMix').innerHTML = mixRows.map(([m,v]) => `<i style="width:${(v/Math.max(mixTotal,1)*100).toFixed(1)}%;background:${hue(m)}"></i>`).join('');
+  el('cMixLab').innerHTML = mixRows.length ? mixRows.map(([m,v]) => `<span class="k"><span class="dot" style="background:${hue(m)}"></span>${short(m)} ${num(v)}</span>`).join('')
+    : '<span class="k">No activity yet today</span>';
+
+  const trend = new Map();
+  for (const d of (c?.daily || []).slice(-14)) trend.set(d.day,(trend.get(d.day)||0)+d.cost);
+  if (combined) for (const d of DATA.daily.slice(-14)) trend.set(d.day,(trend.get(d.day)||0)+d.cost);
+  const days = [...trend.entries()].sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);
+  const max = Math.max(...days.map(d=>d[1]),1e-9);
+  el('cSpark').innerHTML = days.map(([day,cost]) => `<i style="height:${Math.max(2,cost/max*100).toFixed(1)}%" title="${fmtDay(day)} — ${usd(cost)}"></i>`).join('');
+  el('cSparkLab').textContent = `last ${days.length} active days · equivalent API cost`;
+  el('cFoot').textContent = combined ? 'Claude + Codex · separate quota limits' : `Codex via ccusage ${c?.source?.version || ''}`;
+}
+
+function renderCompact() {
+  if (provider === 'claude') renderClaudeCompact();
+  else renderCodexCompact(provider === 'combined');
+}
+
 // ══════════════════ VIEW STATE ══════════════════
 // Glancing is the common case, analysis the rare one — so the IDE panel opens
 // compact. The browser is where you go to dig, so it opens long.
@@ -1229,14 +1617,32 @@ const store = {
     } catch {}
   },
 };
+const providerStore = {
+  get: () => {
+    try {
+      if (vscode) return (vscode.getState() || {}).provider;
+      return localStorage.getItem('matra.provider');
+    } catch { return null; }
+  },
+  set: value => {
+    try {
+      if (vscode) vscode.setState({ ...(vscode.getState() || {}), provider:value });
+      else localStorage.setItem('matra.provider', value);
+    } catch {}
+  },
+};
 let view = store.get() || (vscode ? 'compact' : 'long');
+let provider = providerStore.get() || 'claude';
 
 function applyView() {
   document.body.classList.toggle('compact', view === 'compact');
   document.body.classList.toggle('long', view === 'long');
   el('viewToggle').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
-  el('viewTag').textContent = view === 'compact' ? 'Claude usage · compact' : 'Claude usage · long view';
+  el('providerToggle').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.p === provider));
+  const who = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : 'Claude + Codex';
+  el('viewTag').textContent = `${who} usage · ${view === 'compact' ? 'compact' : 'long view'}`;
   store.set(view);
+  providerStore.set(provider);
   if (DATA) view === 'compact' ? renderCompact() : draw();
 }
 
@@ -1245,6 +1651,29 @@ el('viewToggle').addEventListener('click', e => {
   if (!b) return;
   view = b.dataset.v;
   applyView();
+});
+
+el('providerToggle').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  provider = b.dataset.p;
+  applyView();
+});
+
+el('refreshBtn').addEventListener('click', async () => {
+  const button = el('refreshBtn');
+  button.disabled = true; button.textContent = 'Refreshing…';
+  if (vscode) {
+    vscode.postMessage('refreshCodex');
+    return;
+  }
+  try {
+    const res = await fetch('/api/codex/refresh', { method:'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    receive(await res.json());
+  } catch {
+    button.disabled = false; button.textContent = 'Refresh';
+  }
 });
 
 // Plan popover — the one disclosure on the page. The plan is static and
@@ -1261,11 +1690,12 @@ function receive(d) {
   DATA = d;
   el('status').textContent = 'live';
   el('status').className = 'live';
+  el('refreshBtn').disabled = false;
+  el('refreshBtn').textContent = 'Refresh';
   if (first) renderHeat(d);
   if (view === 'compact') {
     renderCompact();
   } else {
-    renderQuota(d.quota);
     draw();
   }
 }

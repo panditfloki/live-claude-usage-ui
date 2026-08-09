@@ -4,12 +4,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { snapshot, PROJECTS_DIR } = require('./parser');
 const { quota } = require('./quota');
+const codex = require('./codex');
 
 let status;
 let panel;
 let watcher;
 let debounce;
 let poll;
+let codexWatcher;
+let codexDebounce;
 
 const usd = n => '$' + (n < 100 ? n.toFixed(2) : Math.round(n).toLocaleString());
 const num = n =>
@@ -35,7 +38,7 @@ const meter = pct => {
   return '█'.repeat(filled) + '░'.repeat(10 - filled);
 };
 
-async function render() {
+async function render({ forceCodex = false } = {}) {
   let data;
   try {
     data = snapshot();
@@ -48,6 +51,8 @@ async function render() {
   // Soft dependency: null means the endpoint is gone, the token rotated, or
   // we're offline. Everything below must still work.
   const q = await quota().catch(() => null);
+  if (forceCodex) await codex.refresh({ force: true }).catch(() => null);
+  data.codex = codex.read();
 
   const cfg = vscode.workspace.getConfiguration('claudeUsage');
   // A StatusBarItem is HIDDEN until show() is called — there is no `visible`
@@ -117,7 +122,10 @@ function openPanel(context) {
   );
   panel.onDidDispose(() => { panel = undefined; }, null, context.subscriptions);
   // The webview signals when its listener is attached, avoiding a post-before-ready race.
-  panel.webview.onDidReceiveMessage(m => { if (m === 'ready') render(); },
+  panel.webview.onDidReceiveMessage(m => {
+    if (m === 'ready') render();
+    if (m === 'refreshCodex') render({ forceCodex: true });
+  },
     null, context.subscriptions);
 }
 
@@ -133,13 +141,14 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('claudeUsage.open', () => openPanel(context)),
-    vscode.commands.registerCommand('claudeUsage.refresh', () => render()),
+    vscode.commands.registerCommand('claudeUsage.refresh', () => render({ forceCodex: true })),
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('claudeUsage')) render();
     })
   );
 
   render();
+  codex.refresh().then(() => render()).catch(() => {});
 
   // Transcripts are append-only, so the parser tails only new bytes. Coalesce
   // the burst of writes a single assistant turn produces.
@@ -160,12 +169,26 @@ function activate(context) {
   // one endpoint call a minute at most.
   poll = setInterval(render, 60_000);
   context.subscriptions.push({ dispose: () => clearInterval(poll) });
+
+  const codexPoll = setInterval(() => codex.refresh().then(() => render()).catch(() => {}), codex.TTL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(codexPoll) });
+
+  try {
+    codexWatcher = fs.watch(codex.CODEX_DIR, { recursive: true }, (_e, file) => {
+      if (!file || !file.endsWith('.jsonl')) return;
+      clearTimeout(codexDebounce);
+      codexDebounce = setTimeout(() => codex.refresh({ force: true }).then(() => render()).catch(() => {}), 3_000);
+    });
+    context.subscriptions.push({ dispose: () => codexWatcher.close() });
+  } catch {}
 }
 
 function deactivate() {
   clearTimeout(debounce);
   clearInterval(poll);
+  clearTimeout(codexDebounce);
   if (watcher) watcher.close();
+  if (codexWatcher) codexWatcher.close();
 }
 
 module.exports = { activate, deactivate };

@@ -7,6 +7,10 @@ plan.json
 # Workspace glue: an @-import pointing into a private Obsidian vault.
 # Machine-specific, not part of the app.
 CLAUDE.md
+AGENTS.md
+
+# Local agent plans and project-working adapters are not public product source.
+agents/
 
 # Build artifacts — the .vsix is produced by `npm run package`, attach it to a
 # GitHub Release rather than committing a binary on every version bump.
