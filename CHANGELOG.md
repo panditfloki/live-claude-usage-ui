@@ -9,6 +9,10 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Provider-parity status bar:** the bottom-right meter now shows Claude and Codex together
+  (`C 42% · X 31%`) without combining their quota denominators. Its hover card keeps both plans,
+  limits, reset times and local totals in separate provider sections; either provider crossing
+  80% triggers the warning colour, and unavailable Codex degrades explicitly to `X —`.
 - **Codex parity:** `Claude | Codex | Combined` provider views in both Compact and Long.
 - Codex daily/model/token/session/directory totals via optional `ccusage 20.0.19` consumption.
 - Latest Codex account-limit percentage and reset time from local session records.

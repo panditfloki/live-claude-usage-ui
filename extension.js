@@ -5,6 +5,7 @@ const path = require('node:path');
 const { snapshot, PROJECTS_DIR } = require('./parser');
 const { quota } = require('./quota');
 const codex = require('./codex');
+const { statusSummary } = require('./statusbar');
 
 let status;
 let panel;
@@ -59,33 +60,17 @@ async function render({ forceCodex = false } = {}) {
   // property on the real API. Assigning one silently does nothing.
   if (cfg.get('statusBar.show', true)) status.show(); else status.hide();
   const metric = cfg.get('statusBar.metric', 'quota');
-
-  const session = q && q.limits.find(l => l.kind === 'session');
   const b = data.block;
   const t = data.today;
-
-  let label;
-  if (metric === 'quota' && session) {
-    label = `${session.percent}%${session.resetsAt ? ' · ' + until(session.resetsAt) : ''}`;
-  } else if (metric === 'total') {
-    label = `${usd(data.totals.cost)} all time`;
-  } else if (metric === 'today') {
-    label = t ? `${usd(t.cost)} today` : '$0 today';
-  } else if (metric === 'cost') {
-    label = b ? `${usd(b.cost)} · ${b.turns} turns` : 'idle';
-  } else {
-    // Asked for quota but it's unavailable — fall back rather than show nothing.
-    label = b ? `${usd(b.cost)} · est` : 'idle';
-  }
-
-  const warn = session && session.percent >= 80;
-  status.text = `${warn ? '$(flame)' : '$(pulse)'} ${label}`;
-  status.backgroundColor = warn
+  const summary = statusSummary(metric, data, q, data.codex);
+  status.text = `${summary.warn ? '$(flame)' : '$(pulse)'} ${summary.label}`;
+  status.backgroundColor = summary.warn
     ? new vscode.ThemeColor('statusBarItem.warningBackground')
     : undefined;
 
   const md = new vscode.MarkdownString('', true);
-  md.appendMarkdown('**Claude usage**\n\n');
+  md.appendMarkdown('**Mātrā · Claude + Codex**\n\n');
+  md.appendMarkdown('### Claude\n\n');
 
   if (q) {
     if (q.plan) md.appendMarkdown(`Plan — **${q.plan}**\n\n`);
@@ -103,7 +88,31 @@ async function render({ forceCodex = false } = {}) {
 
   md.appendMarkdown(`Last 24h — ${t ? usd(t.cost) : '$0'}\n\n`);
   md.appendMarkdown(`All time — ${usd(data.totals.cost)} over ${data.totals.turns} turns\n\n`);
-  md.appendMarkdown('*Costs are equivalent API cost — a burn proxy, not a bill.*\n\n');
+  md.appendMarkdown('---\n\n### Codex\n\n');
+
+  const x = data.codex;
+  if (x?.quota) {
+    if (x.quota.plan) md.appendMarkdown(`Plan — **${x.quota.plan}**\n\n`);
+    for (const l of x.quota.limits || []) {
+      md.appendMarkdown(
+        `\`${meter(l.percent)}\` **${l.percent}%** — ${l.label}` +
+        (l.resetsAt ? ` · resets in ${until(l.resetsAt)}` : '') + '\n\n'
+      );
+    }
+  } else {
+    md.appendMarkdown('_Codex quota unavailable._\n\n');
+  }
+
+  if (x?.available) {
+    const xToday = summary.codexToday;
+    md.appendMarkdown(`Today — ${xToday ? usd(xToday.cost) : '$0'} · ${xToday ? num(xToday.tokens) : '0'} tokens\n\n`);
+    md.appendMarkdown(`All time — ${usd(x.totals.cost)} · ${num(x.totals.tokens)} tokens over ${x.sessions.length} sessions\n\n`);
+    if (x.stale) md.appendMarkdown(`_Codex data is stale${x.staleReason ? ` — ${x.staleReason}` : ''}._\n\n`);
+  } else {
+    md.appendMarkdown(`_Codex history unavailable${x?.staleReason ? ` — ${x.staleReason}` : ''}._\n\n`);
+  }
+
+  md.appendMarkdown('*Costs are equivalent API cost — burn proxies, not subscription bills.*\n\n');
   md.appendMarkdown('Click to open the dashboard.');
   status.tooltip = md;
 
@@ -135,7 +144,7 @@ function activate(context) {
   // Show something immediately. render() awaits a network call, so without this
   // the bar would be absent for the first few seconds of every session.
   status.text = '$(pulse) usage…';
-  status.tooltip = 'Reading Claude usage…';
+  status.tooltip = 'Reading Claude + Codex usage…';
   status.show();
   context.subscriptions.push(status);
 

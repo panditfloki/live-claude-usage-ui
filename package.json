@@ -2,7 +2,7 @@
   "name": "claude-usage-meter",
   "displayName": "Mātrā — Claude + Codex Usage",
   "description": "Live Claude and Codex usage — plan limits, tokens and equivalent API cost in one local dashboard.",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "publisher": "dydxfx",
   "author": {
     "name": "Pandit Floki",
@@ -62,10 +62,10 @@
           ],
           "default": "quota",
           "enumDescriptions": [
-            "Real session quota % and reset countdown (falls back to cost if unavailable)",
-            "Cost of the current 5-hour window (estimated)",
-            "Cost over the rolling last 24 hours",
-            "All-time cost"
+            "Claude session quota and Codex primary quota, kept separate",
+            "Claude current-window cost and Codex primary quota (Codex has no aligned local cost window)",
+            "Claude and Codex calendar-today costs, kept separate",
+            "Claude and Codex all-time costs, kept separate"
           ],
           "description": "Which figure the status bar shows."
         },
