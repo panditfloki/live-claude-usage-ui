@@ -5,6 +5,7 @@ const path = require('node:path');
 const { snapshot, PROJECTS_DIR } = require('./parser');
 const { quota } = require('./quota');
 const codex = require('./codex');
+const gemini = require('./gemini');
 const { statusSummary } = require('./statusbar');
 
 let status;
@@ -14,6 +15,8 @@ let debounce;
 let poll;
 let codexWatcher;
 let codexDebounce;
+let geminiWatcher;
+let geminiDebounce;
 
 const usd = n => '$' + (n < 100 ? n.toFixed(2) : Math.round(n).toLocaleString());
 const num = n =>
@@ -21,7 +24,6 @@ const num = n =>
   n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' :
   n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
 
-// "145h 42m" is unreadable — show the two most significant units.
 function until(ts) {
   const ms = ts - Date.now();
   if (ms <= 0) return 'now';
@@ -33,13 +35,12 @@ function until(ts) {
   return `${m}m`;
 }
 
-// Text bar for the tooltip — a webview isn't available there.
 const meter = pct => {
   const filled = Math.round(Math.min(100, Math.max(0, pct)) / 10);
   return '█'.repeat(filled) + '░'.repeat(10 - filled);
 };
 
-async function render({ forceCodex = false } = {}) {
+async function render({ forceCodex = false, forceGemini = false } = {}) {
   let data;
   try {
     data = snapshot();
@@ -49,27 +50,25 @@ async function render({ forceCodex = false } = {}) {
     return;
   }
 
-  // Soft dependency: null means the endpoint is gone, the token rotated, or
-  // we're offline. Everything below must still work.
   const q = await quota().catch(() => null);
   if (forceCodex) await codex.refresh({ force: true }).catch(() => null);
+  if (forceGemini) await gemini.refresh({ force: true }).catch(() => null);
   data.codex = codex.read();
+  data.gemini = gemini.read();
 
   const cfg = vscode.workspace.getConfiguration('claudeUsage');
-  // A StatusBarItem is HIDDEN until show() is called — there is no `visible`
-  // property on the real API. Assigning one silently does nothing.
   if (cfg.get('statusBar.show', true)) status.show(); else status.hide();
   const metric = cfg.get('statusBar.metric', 'quota');
   const b = data.block;
   const t = data.today;
-  const summary = statusSummary(metric, data, q, data.codex);
+  const summary = statusSummary(metric, data, q, data.codex, data.gemini);
   status.text = `${summary.warn ? '$(flame)' : '$(pulse)'} ${summary.label}`;
   status.backgroundColor = summary.warn
     ? new vscode.ThemeColor('statusBarItem.warningBackground')
     : undefined;
 
   const md = new vscode.MarkdownString('', true);
-  md.appendMarkdown('**Mātrā · Claude + Codex**\n\n');
+  md.appendMarkdown('**Mātrā · Claude + Codex + Gemini**\n\n');
   md.appendMarkdown('### Claude\n\n');
 
   if (q) {
@@ -112,6 +111,29 @@ async function render({ forceCodex = false } = {}) {
     md.appendMarkdown(`_Codex history unavailable${x?.staleReason ? ` — ${x.staleReason}` : ''}._\n\n`);
   }
 
+  md.appendMarkdown('---\n\n### Gemini\n\n');
+  const g = data.gemini;
+  if (g?.quota) {
+    if (g.quota.plan) md.appendMarkdown(`Plan — **${g.quota.plan}**\n\n`);
+    for (const l of g.quota.limits || []) {
+      md.appendMarkdown(
+        `\`${meter(l.percent)}\` **${l.percent}%** — ${l.label}` +
+        (l.resetsAt ? ` · resets in ${until(l.resetsAt)}` : '') + '\n\n'
+      );
+    }
+  } else {
+    md.appendMarkdown('_Gemini quota unavailable._\n\n');
+  }
+
+  if (g?.available) {
+    const gToday = summary.geminiToday;
+    md.appendMarkdown(`Today — ${gToday ? usd(gToday.cost) : '$0'} · ${gToday ? num(gToday.tokens) : '0'} tokens\n\n`);
+    md.appendMarkdown(`All time — ${usd(g.totals.cost)} · ${num(g.totals.tokens)} tokens over ${g.sessions.length} sessions\n\n`);
+    if (g.stale) md.appendMarkdown(`_Gemini data is stale${g.staleReason ? ` — ${g.staleReason}` : ''}._\n\n`);
+  } else {
+    md.appendMarkdown(`_Gemini history unavailable${g?.staleReason ? ` — ${g.staleReason}` : ''}._\n\n`);
+  }
+
   md.appendMarkdown('*Costs are equivalent API cost — burn proxies, not subscription bills.*\n\n');
   md.appendMarkdown('Click to open the dashboard.');
   status.tooltip = md;
@@ -123,17 +145,17 @@ function openPanel(context) {
   if (panel) return panel.reveal(vscode.ViewColumn.Beside);
 
   panel = vscode.window.createWebviewPanel(
-    'claudeUsage', 'Claude Usage', vscode.ViewColumn.Beside,
+    'claudeUsage', 'Mātrā Usage', vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
   );
   panel.webview.html = fs.readFileSync(
     path.join(context.extensionPath, 'media', 'dashboard.html'), 'utf8'
   );
   panel.onDidDispose(() => { panel = undefined; }, null, context.subscriptions);
-  // The webview signals when its listener is attached, avoiding a post-before-ready race.
   panel.webview.onDidReceiveMessage(m => {
     if (m === 'ready') render();
     if (m === 'refreshCodex') render({ forceCodex: true });
+    if (m === 'refreshGemini') render({ forceGemini: true });
   },
     null, context.subscriptions);
 }
@@ -141,16 +163,14 @@ function openPanel(context) {
 function activate(context) {
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.command = 'claudeUsage.open';
-  // Show something immediately. render() awaits a network call, so without this
-  // the bar would be absent for the first few seconds of every session.
   status.text = '$(pulse) usage…';
-  status.tooltip = 'Reading Claude + Codex usage…';
+  status.tooltip = 'Reading Claude + Codex + Gemini usage…';
   status.show();
   context.subscriptions.push(status);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('claudeUsage.open', () => openPanel(context)),
-    vscode.commands.registerCommand('claudeUsage.refresh', () => render({ forceCodex: true })),
+    vscode.commands.registerCommand('claudeUsage.refresh', () => render({ forceCodex: true, forceGemini: true })),
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('claudeUsage')) render();
     })
@@ -158,9 +178,8 @@ function activate(context) {
 
   render();
   codex.refresh().then(() => render()).catch(() => {});
+  gemini.refresh().then(() => render()).catch(() => {});
 
-  // Transcripts are append-only, so the parser tails only new bytes. Coalesce
-  // the burst of writes a single assistant turn produces.
   try {
     watcher = fs.watch(PROJECTS_DIR, { recursive: true }, (_e, file) => {
       if (!file || !file.endsWith('.jsonl')) return;
@@ -173,14 +192,14 @@ function activate(context) {
     context.subscriptions.push({ dispose: () => clearInterval(timer) });
   }
 
-  // The quota clock keeps moving even when no transcript is being written, so
-  // the reset countdown needs its own tick. quota() caches for 60s, so this is
-  // one endpoint call a minute at most.
   poll = setInterval(render, 60_000);
   context.subscriptions.push({ dispose: () => clearInterval(poll) });
 
   const codexPoll = setInterval(() => codex.refresh().then(() => render()).catch(() => {}), codex.TTL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(codexPoll) });
+
+  const geminiPoll = setInterval(() => gemini.refresh().then(() => render()).catch(() => {}), gemini.TTL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(geminiPoll) });
 
   try {
     codexWatcher = fs.watch(codex.CODEX_DIR, { recursive: true }, (_e, file) => {
@@ -190,14 +209,25 @@ function activate(context) {
     });
     context.subscriptions.push({ dispose: () => codexWatcher.close() });
   } catch {}
+
+  try {
+    geminiWatcher = fs.watch(gemini.CONVERSATIONS_DIR, { recursive: true }, (_e, file) => {
+      if (!gemini.isConversationFile(file)) return;
+      clearTimeout(geminiDebounce);
+      geminiDebounce = setTimeout(() => gemini.refresh({ force: true }).then(() => render()).catch(() => {}), 3_000);
+    });
+    context.subscriptions.push({ dispose: () => geminiWatcher.close() });
+  } catch {}
 }
 
 function deactivate() {
   clearTimeout(debounce);
   clearInterval(poll);
   clearTimeout(codexDebounce);
+  clearTimeout(geminiDebounce);
   if (watcher) watcher.close();
   if (codexWatcher) codexWatcher.close();
+  if (geminiWatcher) geminiWatcher.close();
 }
 
 module.exports = { activate, deactivate };

@@ -9,6 +9,13 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Gemini parity (v1.3.0):** measured Antigravity CLI token/session/workspace history across
+  `Gemini` and `Combined` views, plus an explicit `G —` status-bar quota state. Antigravity's
+  local stores do not expose a trustworthy account quota, so Mātrā does not invent one.
+- Gemini model and daily colour breakdowns, near-live three-second refresh after conversation DB
+  writes, five-minute fallback refresh, and soft unavailable/stale states.
+- Gemini equivalent API cost uses Google's published standard paid-tier rates; it is a burn proxy,
+  not an Antigravity subscription bill.
 - **Provider-parity status bar:** the bottom-right meter now shows Claude and Codex together
   (`C 42% · X 31%`) without combining their quota denominators. Its hover card keeps both plans,
   limits, reset times and local totals in separate provider sections; either provider crossing

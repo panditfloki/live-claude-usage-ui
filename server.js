@@ -7,18 +7,22 @@ const path = require('node:path');
 const { snapshot, PROJECTS_DIR } = require('./parser');
 const { quota } = require('./quota');
 const codex = require('./codex');
+const gemini = require('./gemini');
 
 const PORT = Number(process.env.PORT || 4317);
 const clients = new Set();
 let codexPending;
+let geminiPending;
 
 // Same payload the extension posts to its webview, so both front-ends can share
-// one render() — local transcript data plus the real (soft-failing) quota.
-async function payload({ forceCodex = false } = {}) {
+// one render() — local transcript data plus real quotas for Claude, Codex, and Gemini.
+async function payload({ forceCodex = false, forceGemini = false } = {}) {
   if (forceCodex) await codex.refresh({ force: true });
+  if (forceGemini) await gemini.refresh({ force: true });
   const data = snapshot();
   data.quota = await quota().catch(() => null);
   data.codex = codex.read();
+  data.gemini = gemini.read();
   return data;
 }
 
@@ -38,18 +42,26 @@ fs.watch(PROJECTS_DIR, { recursive: true }, (_e, file) => {
 // The reset countdown keeps moving even when nothing is being written.
 setInterval(push, 60_000).unref?.();
 
-// Codex aggregation shells out to ccusage only in the background. Ordinary
-// payloads read the shared five-minute cache and never block on a subprocess.
+// Codex and Gemini aggregation shell out or scan in background.
 codex.refresh().then(push).catch(() => {});
 setInterval(() => codex.refresh().then(push).catch(() => {}), codex.TTL_MS).unref?.();
 
-// Codex writes several JSONL rows during one turn. Wait for the burst to settle,
-// then rebuild once — near-live without shelling out for every streaming row.
+gemini.refresh().then(push).catch(() => {});
+setInterval(() => gemini.refresh().then(push).catch(() => {}), gemini.TTL_MS).unref?.();
+
 try {
   fs.watch(codex.CODEX_DIR, { recursive: true }, (_e, file) => {
     if (!file || !file.endsWith('.jsonl')) return;
     clearTimeout(codexPending);
     codexPending = setTimeout(() => codex.refresh({ force: true }).then(push).catch(() => {}), 3_000);
+  });
+} catch {}
+
+try {
+  fs.watch(gemini.CONVERSATIONS_DIR, { recursive: true }, (_e, file) => {
+    if (!gemini.isConversationFile(file)) return;
+    clearTimeout(geminiPending);
+    geminiPending = setTimeout(() => gemini.refresh({ force: true }).then(push).catch(() => {}), 3_000);
   });
 } catch {}
 
@@ -73,9 +85,16 @@ http.createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(JSON.stringify(await payload({ forceCodex: true })));
   }
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  if (req.method === 'POST' && req.url === '/api/gemini/refresh') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify(await payload({ forceGemini: true })));
+  }
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-cache, no-store, must-revalidate'
+  });
   // Same file the extension panel loads — one dashboard, two hosts.
   res.end(fs.readFileSync(path.join(__dirname, 'media', 'dashboard.html')));
 }).listen(PORT, () => {
-  console.log(`Claude usage dashboard → http://localhost:${PORT}`);
+  console.log(`Claude + Codex + Gemini usage dashboard → http://localhost:${PORT}`);
 });

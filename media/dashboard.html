@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mātrā — Claude + Codex usage</title>
+<title>Mātrā — Claude + Codex + Gemini usage</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1117'/%3E%3Cpath d='M13 45a19 19 0 0 1 38 0' fill='none' stroke='%2326303d' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M13 45a19 19 0 0 1 13-18' fill='none' stroke='%234a8bf0' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M32 45 L43 30' stroke='%23e6edf3' stroke-width='3.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='45' r='4' fill='%23e6edf3'/%3E%3C/svg%3E">
 <style>
   /* One stylesheet, two hosts. The --vscode-* vars resolve inside the IDE panel;
@@ -20,6 +20,7 @@
     /* GPT capability ladder: hottest/strongest → coolest/lightest. */
     --sol: #ff5c5c; --terra: #ff9f43; --luna: #ffd166;
     --gpt55: #7bdcb5; --gpt54: #58a6ff; --gpt54mini: #8b949e;
+    --gemini: #10a37f; --geminiflash: #34d399;
     --warn: var(--vscode-errorForeground, #f85149);
     --ease: cubic-bezier(.22,.61,.36,1);
   }
@@ -422,6 +423,7 @@
   <div class="provider" id="providerToggle" aria-label="Usage provider">
     <button data-p="claude">Claude</button>
     <button data-p="codex">Codex</button>
+    <button data-p="gemini">Gemini</button>
     <button data-p="combined">Combined</button>
   </div>
   <button class="refreshbtn" id="refreshBtn" title="Refresh Codex data now">Refresh</button>
@@ -574,6 +576,7 @@ const MODEL_HUE = {
   opus:'var(--opus)', fable:'var(--fable)', sonnet:'var(--sonnet)', haiku:'var(--haiku)',
   sol:'var(--sol)', terra:'var(--terra)', luna:'var(--luna)', 'gpt-5.5':'var(--gpt55)',
   'gpt-5.4-mini':'var(--gpt54mini)', 'gpt-5.4':'var(--gpt54)',
+  gemini:'var(--gemini)', flash:'var(--geminiflash)',
 };
 const hue = m => MODEL_HUE[Object.keys(MODEL_HUE).find(k => m.includes(k))] || 'var(--dim)';
 const short = m => m.replace('claude-', '').replace(/-\d{8}$/, '');
@@ -715,6 +718,11 @@ function rangeLabel() {
   }
   if (range.mode === 'custom') return 'pick two dates';
   return `last ${range.mode} days`;
+}
+
+function inRange(ts) {
+  const [lo, hi] = bounds();
+  return ts >= lo && ts <= hi;
 }
 
 // ---------------------------------------------------------------------------
@@ -876,9 +884,76 @@ function aggregateCodex() {
   };
 }
 
+function selectedGeminiDays() {
+  const rows = DATA?.gemini?.daily || [];
+  if (!rows.length) return [];
+  const today = iso(dayStart(Date.now()));
+  let lo = rows[0].day, hi = today;
+  if (range.mode === 'today') lo = today;
+  else if (range.mode === 'custom' && range.from && range.to) {
+    lo = range.from; hi = range.to;
+  } else if (range.mode !== 'all') {
+    const d = dayStart(Date.now());
+    d.setDate(d.getDate() - (Number(range.mode) - 1));
+    lo = iso(d);
+  }
+  return rows.filter(row => row.day >= lo && row.day <= hi);
+}
+
+function aggregateGemini() {
+  if (!DATA?.gemini?.available) return { tot:{ cost:0, input:0, output:0, reasoningOutput:0, cacheWrite:0, cacheRead:0, tokens:0, turns:0 }, days:[], modelRows:[], billable:0, projects:[], attribution:{ cost:0, unattributedCost:0, unattributedSessions:0, folders:0 }, sessions:0, activeDays:0 };
+  const rows = selectedGeminiDays();
+  const tot = { cost:0, input:0, output:0, reasoningOutput:0, cacheWrite:0, cacheRead:0, tokens:0, turns:0 };
+  const perModel = new Map();
+  const days = rows.map(row => {
+    for (const k of Object.keys(tot)) tot[k] += Number(row[k]) || 0;
+    const byModel = new Map();
+    for (const model of row.models || []) {
+      const g = perModel.get(model.name) || { key:model.name, input:0, output:0, reasoningOutput:0, tokens:0, cost:null };
+      g.input += model.input; g.output += model.output;
+      g.tokens += model.tokens; g.cost = (g.cost || 0) + (model.cost || 0);
+      perModel.set(model.name, g);
+      byModel.set(model.name, { tokens:model.input + model.output, cost:model.cost });
+    }
+    return { day:row.day, cost:row.cost, tokens:row.input + row.output, byModel };
+  });
+  const billable = tot.input + tot.output;
+  const modelRows = [...perModel.values()].sort((a,b) => b.tokens - a.tokens)
+    .map(m => ({ ...m, share:billable ? (m.input + m.output) / billable * 100 : 0 }));
+
+  const dirs = new Map();
+  let unattributedCost = 0, unattributedSessions = 0;
+  for (const session of DATA?.gemini?.sessions || []) {
+    if (!session.attributed || !session.folder) {
+      unattributedCost += session.cost; unattributedSessions++;
+      continue;
+    }
+    const key = session.folder;
+    const g = dirs.get(key) || { key, cost:0, tokens:0, sessions:0 };
+    g.cost += session.cost; g.tokens += session.tokens; g.sessions++;
+    dirs.set(key, g);
+  }
+  const attributedCost = [...dirs.values()].reduce((a, g) => a + g.cost, 0);
+  const sessionDays = new Set(rows.map(r => r.day));
+  const sessions = (DATA?.gemini?.sessions || []).filter(s =>
+    !s.lastActivity || sessionDays.has(String(s.lastActivity).slice(0,10))).length;
+  return {
+    tot, days, modelRows, billable, hourly:false,
+    projects:[...dirs.values()].sort((a,b) => b.cost - a.cost).slice(0,12),
+    attribution:{
+      cost:attributedCost,
+      unattributedCost,
+      unattributedSessions,
+      folders:dirs.size,
+    },
+    sessions, activeDays:rows.length, peakHour:null,
+  };
+}
+
 function aggregateCombined() {
   const claude = aggregate();
   const codex = aggregateCodex();
+  const gemini = aggregateGemini();
   const perDay = new Map();
   for (const e of claude.evs) {
     const day = iso(dayStart(e[T.TS]));
@@ -900,28 +975,45 @@ function aggregateCombined() {
     }
     perDay.set(d.day, g);
   }
-  const combinedBillable = claude.billable + codex.billable;
+  for (const d of gemini.days) {
+    const g = perDay.get(d.day) || { day:d.day, cost:0, tokens:0, byModel:new Map() };
+    g.cost += d.cost; g.tokens += d.tokens;
+    for (const [name, m] of d.byModel) {
+      const key = `Gemini · ${name}`;
+      const cur = g.byModel.get(key) || { tokens:0, cost:0 };
+      cur.tokens += m.tokens; cur.cost = (cur.cost || 0) + (m.cost || 0);
+      g.byModel.set(key, cur);
+    }
+    perDay.set(d.day, g);
+  }
+  const combinedBillable = claude.billable + codex.billable + gemini.billable;
   const modelRows = [
     ...claude.modelRows.map(m => ({ ...m, key:`Claude · ${m.key}`, provider:'claude' })),
     ...codex.modelRows.map(m => ({ ...m, key:`Codex · ${m.key}`, provider:'codex', turns:null })),
+    ...gemini.modelRows.map(m => ({ ...m, key:`Gemini · ${m.key}`, provider:'gemini' })),
   ].map(m => ({ ...m, share:combinedBillable ? (m.input + m.output) / combinedBillable * 100 : 0 }))
     .sort((a,b) => (b.input + b.output) - (a.input + a.output));
-  const cost = claude.tot.cost + codex.tot.cost;
+  const cost = claude.tot.cost + codex.tot.cost + gemini.tot.cost;
   return {
     ...codex,
     tot:{
-      cost, input:claude.tot.input + codex.tot.input, output:claude.tot.output + codex.tot.output,
-      reasoningOutput:codex.tot.reasoningOutput, cacheWrite:claude.tot.cacheWrite + codex.tot.cacheWrite,
-      cacheRead:claude.tot.cacheRead + codex.tot.cacheRead, turns:claude.tot.turns,
+      cost, input:claude.tot.input + codex.tot.input + gemini.tot.input,
+      output:claude.tot.output + codex.tot.output + gemini.tot.output,
+      reasoningOutput:codex.tot.reasoningOutput,
+      cacheWrite:claude.tot.cacheWrite + codex.tot.cacheWrite + gemini.tot.cacheWrite,
+      cacheRead:claude.tot.cacheRead + codex.tot.cacheRead + gemini.tot.cacheRead,
+      turns:claude.tot.turns + gemini.tot.turns,
     },
     billable:combinedBillable,
     days:[...perDay.values()].sort((a,b) => a.day.localeCompare(b.day)),
     modelRows,
-    sessions:claude.sessions + codex.sessions,
-    activeDays:new Set([...claude.evs.map(e => iso(dayStart(e[T.TS]))), ...codex.days.map(d => d.day)]).size,
+    sessions:claude.sessions + codex.sessions + gemini.sessions,
+    activeDays:new Set([...claude.evs.map(e => iso(dayStart(e[T.TS]))), ...codex.days.map(d => d.day), ...gemini.days.map(d => d.day)]).size,
     claudeProjects:claude.projects,
     codexProjects:codex.projects,
+    geminiProjects:gemini.projects,
     codexAttribution:codex.attribution,
+    geminiAttribution:gemini.attribution,
     hourly:false,
   };
 }
@@ -1045,14 +1137,16 @@ function renderDeck(q) {
 
 function renderCodexDeck(combined = false) {
   const c = DATA?.codex;
-  el('deckPlan').textContent = combined ? 'Claude + Codex' : (c?.quota?.plan || 'Codex');
+  const g = DATA?.gemini;
+  el('deckPlan').textContent = combined ? 'Claude + Codex + Gemini' : provider === 'gemini' ? (g?.quota?.plan || 'Gemini') : (c?.quota?.plan || 'Codex');
   el('deckBlurb').textContent = combined
-    ? 'Two flat-rate subscriptions · quota limits stay separate'
-    : 'ChatGPT plan · Codex usage only';
+    ? 'Subscriptions & CLI logs · quota limits stay separate'
+    : provider === 'gemini' ? 'Antigravity / Gemini CLI usage' : 'ChatGPT plan · Codex usage only';
   const tiles = [];
-  if (c?.source?.version) tiles.push(['Source', `ccusage ${c.source.version}`, 1]);
+  if (provider === 'gemini' && g?.source) tiles.push(['Source', [g.source.name, g.source.version].filter(Boolean).join(' '), 1]);
+  else if (c?.source?.version) tiles.push(['Source', `ccusage ${c.source.version}`, 1]);
   tiles.push(['Cost basis', 'API equivalent', 1]);
-  tiles.push(['ChatGPT chats', 'Not included', 1]);
+  if (provider === 'codex') tiles.push(['ChatGPT chats', 'Not included', 1]);
   el('deckTiles').innerHTML = tiles.map(([k,v]) =>
     `<div class="tile"><span>${k}</span><b>${v}</b></div>`).join('');
 }
@@ -1060,14 +1154,16 @@ function renderCodexDeck(combined = false) {
 function renderProviderQuota() {
   if (provider === 'claude') return renderQuota(DATA.quota);
   if (provider === 'codex') return renderQuota(DATA.codex?.quota || null);
+  if (provider === 'gemini') return renderQuota(DATA.gemini?.quota || null);
   const claude = DATA.quota?.limits || [];
   const codexLimits = DATA.codex?.quota?.limits || [];
+  const geminiLimits = DATA.gemini?.quota?.limits || [];
   renderQuota({
-    plan:'separate limits', fetchedAt:Date.now(), limits:[...claude, ...codexLimits],
+    plan:'separate limits', fetchedAt:Date.now(), limits:[...claude, ...codexLimits, ...geminiLimits],
     combined:true,
   });
   renderCodexDeck(true);
-  el('planPill').textContent = 'Claude + Codex';
+  el('planPill').textContent = 'Claude + Codex + Gemini';
   el('quotaVerdict').textContent = 'These are separate account limits with separate denominators. '
     + 'They are shown together for visibility and are never averaged into a synthetic percentage.';
 }
@@ -1299,21 +1395,26 @@ function renderDailyHeat(rows) {
   }));
 }
 
-function providerUnavailable() {
-  el('deckPlan').textContent = 'Codex unavailable';
-  el('deckBlurb').textContent = DATA?.codex?.staleReason || 'ccusage data is unavailable';
+function providerUnavailable(kind = 'codex') {
+  const isGemini = kind === 'gemini';
+  const name = isGemini ? 'Gemini' : 'Codex';
+  const data = isGemini ? DATA?.gemini : DATA?.codex;
+  el('deckPlan').textContent = `${name} unavailable`;
+  el('deckBlurb').textContent = data?.staleReason || (isGemini ? 'Antigravity CLI data is unavailable' : 'ccusage data is unavailable');
   el('deckTiles').innerHTML = '';
   el('quota').innerHTML = '';
-  el('quotaVerdict').textContent = 'Claude remains fully available. Install or restore ccusage to enable Codex history.';
+  el('quotaVerdict').textContent = isGemini
+    ? 'Claude and Codex remain available. Restore Antigravity CLI history to enable Gemini usage.'
+    : 'Claude remains fully available. Install or restore ccusage to enable Codex history.';
   for (const id of ['blockCost','dayCost','allCost']) el(id).textContent = '—';
   for (const id of ['blockSub','daySub','allSub','dayVerdict','allVerdict','chartSub','cacheVerdict','heatSub']) el(id).textContent = '—';
-  el('tiles').innerHTML = '<div class="empty">Codex data unavailable.</div>';
-  el('chart').innerHTML = '<div class="empty">No Codex history source.</div>';
-  el('models').innerHTML = '<tr><td colspan="6" class="empty">No Codex model data.</td></tr>';
-  el('projects').innerHTML = '<div class="empty">No Codex folder data.</div>';
+  el('tiles').innerHTML = `<div class="empty">${name} data unavailable.</div>`;
+  el('chart').innerHTML = `<div class="empty">No ${name} history source.</div>`;
+  el('models').innerHTML = `<tr><td colspan="6" class="empty">No ${name} model data.</td></tr>`;
+  el('projects').innerHTML = `<div class="empty">No ${name} folder data.</div>`;
   el('mix').innerHTML = '';
   el('heat').innerHTML = '';
-  el('foot').textContent = 'Codex unavailable · ordinary ChatGPT chats are not included';
+  el('foot').textContent = isGemini ? 'Gemini unavailable · Antigravity CLI history not found' : 'Codex unavailable · ordinary ChatGPT chats are not included';
 }
 
 function drawCodex(combined = false) {
@@ -1404,11 +1505,94 @@ function drawCodex(combined = false) {
     : `Codex via ccusage ${DATA.codex.source.version || ''} · ordinary ChatGPT chats excluded`;
 }
 
+function drawGemini(combined = false) {
+  if (!DATA?.gemini?.available && !combined) return providerUnavailable('gemini');
+  const a = combined ? aggregateCombined() : aggregateGemini();
+  const lbl = rangeLabel();
+  el('blockTitle').innerHTML = `Today <span class="r">${combined ? 'combined' : 'Gemini'}</span>`;
+  el('dayTitle').innerHTML = `Selected range <span class="r">${lbl}</span>`;
+  el('allTitle').innerHTML = `All time <span class="r">${combined ? 'combined' : 'Gemini'}</span>`;
+  el('ovRange').textContent = lbl; el('chartRange').textContent = lbl;
+  el('modelRange').textContent = lbl; el('mixRange').textContent = lbl;
+
+  const geminiToday = (DATA.gemini?.daily || []).find(d => d.day === iso(dayStart(Date.now())));
+  const claudeToday = combined ? aggregate().evs.filter(e => iso(dayStart(e[T.TS])) === iso(dayStart(Date.now()))) : [];
+  const codexToday = combined ? (DATA.codex?.daily || []).find(d => d.day === iso(dayStart(Date.now()))) : null;
+  const todayCost = (geminiToday?.cost || 0) + (codexToday?.cost || 0) + claudeToday.reduce((s,e) => s + e[T.COST], 0);
+  const allCost = combined ? DATA.totals.cost + (DATA.codex?.totals?.cost || 0) + (DATA.gemini?.totals?.cost || 0) : (DATA.gemini?.totals?.cost || 0);
+
+  animate(el('blockCost'), todayCost, usd);
+  el('blockSub').textContent = 'calendar day · equivalent API cost';
+  animate(el('dayCost'), a.tot.cost, usd);
+  el('daySub').textContent = `${num(a.billable)} input + output tokens`;
+  el('dayVerdict').textContent = 'Equivalent API cost — a burn proxy, not a bill.';
+  animate(el('allCost'), allCost, usd);
+  el('allSub').textContent = combined
+    ? `${DATA.stats.sessions + (DATA.codex?.sessions?.length || 0) + (DATA.gemini?.sessions?.length || 0)} local sessions`
+    : `${DATA.gemini?.sessions?.length || 0} local Gemini sessions`;
+  el('allVerdict').textContent = combined
+    ? 'Claude, Codex, and Gemini costs are summed; their quotas remain separate.'
+    : 'Antigravity / Gemini CLI session trajectory logs.';
+
+  el('tiles').innerHTML = [
+    ['Equivalent cost', usd(a.tot.cost)],
+    ['Input', num(a.tot.input)], ['Output', num(a.tot.output)],
+    ['Cache read', num(a.tot.cacheRead)],
+    ['Active days', a.activeDays], ['Sessions', a.sessions],
+    ['Providers', combined ? '3' : 'Gemini'],
+  ].map(([k,v]) => `<div class="tile"><span>${k}</span><b>${v}</b></div>`).join('');
+
+  renderChart(a, { modelCost:true });
+  el('models').innerHTML = a.modelRows.length ? a.modelRows.map(m => `
+    <tr><td><span class="dot" style="background:${hue(m.key)}"></span>${short(m.key)}</td>
+    <td>${m.turns == null ? '—' : m.turns}</td><td>${num(m.input)}</td><td>${num(m.output)}</td>
+    <td>${m.share.toFixed(1)}%</td><td>${m.cost == null ? '—' : usd(m.cost)}</td></tr>`).join('')
+    : '<tr><td colspan="6" class="empty">No activity in this range.</td></tr>';
+
+  const renderProjects = (rows, empty = 'No Gemini folder data.') => rows.length ? rows.map(p => `
+    <div class="row"><span class="name" title="${p.key}">${projLabel(p.key)}</span>
+    <span class="bar"><i data-w="${(p.cost / Math.max(...rows.map(x=>x.cost),1e-9)*100).toFixed(1)}" style="background:var(--gemini)"></i></span>
+    <span class="val">${usd(p.cost)}</span></div>`).join('') : `<div class="empty">${empty}</div>`;
+
+  if (combined) {
+    el('projTitle').textContent = 'By project';
+    el('projRange').textContent = 'separate attribution';
+    el('projects').innerHTML = '<div class="provider-head">Claude · selected range</div>'
+      + renderProjects(a.claudeProjects || [], 'No Claude project data.')
+      + '<div class="provider-head">Codex folders · all time</div>'
+      + renderProjects(a.codexProjects || [])
+      + '<div class="provider-head">Gemini workspace folders</div>'
+      + renderProjects(a.geminiProjects || []);
+  } else {
+    el('projTitle').textContent = 'By folder';
+    el('projRange').textContent = 'all time';
+    el('projects').innerHTML = renderProjects(a.projects || []);
+  }
+  requestAnimationFrame(() => document.querySelectorAll('.bar > i[data-w]').forEach(i => { i.style.width = i.dataset.w + '%'; }));
+
+  const mix = [
+    ['Cache read',a.tot.cacheRead,'var(--haiku)'],
+    ['Output',a.tot.output,'var(--geminiflash)'],
+    ['Input',a.tot.input,'var(--gemini)'],
+  ];
+  const max = Math.max(...mix.map(x=>x[1]),1);
+  el('mix').innerHTML = mix.map(([n,v,c]) => `<div class="row"><span class="name">${n}</span>
+    <span class="bar"><i data-w="${(v/max*100).toFixed(1)}" style="background:${c}"></i></span><span class="val">${num(v)}</span></div>`).join('');
+  el('cacheVerdict').textContent = 'Gemini input, output, and cache tokens are parsed from trajectory metadata.';
+  renderDailyHeat(combined ? a.days : DATA.gemini?.daily || []);
+  el('heatSub').textContent = `${combined ? 'Combined local activity' : 'Gemini activity'} · last 26 weeks`;
+  el('foot').textContent = combined
+    ? 'Claude + Codex + Gemini combined history'
+    : 'Gemini via Antigravity CLI';
+}
+
 function draw() {
   if (!DATA) return;
   renderProviderQuota();
   if (provider === 'claude') drawClaude();
-  else drawCodex(provider === 'combined');
+  else if (provider === 'codex') drawCodex(false);
+  else if (provider === 'gemini') drawGemini(false);
+  else drawGemini(true);
 }
 
 function syncTabs() {
@@ -1421,7 +1605,6 @@ el('tabs').addEventListener('click', e => {
   if (!b) return;
   range.mode = b.dataset.r;
   if (range.mode === 'custom' && !(range.from && range.to)) {
-    // Seed the pickers with the last 14 days so "Custom" is never a dead end.
     const to = dayStart(Date.now()), from = dayStart(Date.now());
     from.setDate(from.getDate() - 13);
     range.from = iso(from); range.to = iso(to);
@@ -1443,10 +1626,6 @@ for (const id of ['from', 'to']) {
   });
 }
 
-// ══════════════════ COMPACT VIEW ══════════════════
-// One screen, no scrolling. It answers exactly one question: am I OK right now,
-// and what is it costing me? Everything cut from here is one click away in Long.
-
 function renderClaudeCompact() {
   if (!DATA) return;
   el('cTodayLabel').textContent = 'Today';
@@ -1455,7 +1634,6 @@ function renderClaudeCompact() {
   el('cAllLabel').textContent = 'All time';
   const q = DATA.quota;
 
-  // ── plan chip: tier is LIVE (from the API); price and renewal are DECLARED ──
   if (q && q.planInfo) {
     const p = q.planInfo;
     const bits = [p.label || p.type || '—'];
@@ -1483,7 +1661,6 @@ function renderClaudeCompact() {
     el('planPop').innerHTML = '<div class="r"><span>Quota endpoint unreachable</span></div>';
   }
 
-  // ── quota bars + pace: the only actionable thing on the page ──
   el('cQuota').innerHTML = !q ? '<div class="empty">Quota unavailable — local figures below are unaffected.</div>'
     : q.limits.map(l => {
       const p = pace(l);
@@ -1507,7 +1684,6 @@ function renderClaudeCompact() {
     el('cQuota').querySelectorAll('.track > i').forEach(i => { i.style.width = i.dataset.w + '%'; });
   });
 
-  // ── cost: four fixed numbers, no range control (deliberately) ──
   const T2 = T;
   const todayLo = dayStart(Date.now()).getTime();
   const todayEvs = DATA.events.filter(e => e[T2.TS] >= todayLo);
@@ -1522,7 +1698,6 @@ function renderClaudeCompact() {
   animate(el('cAll'), DATA.totals.cost, usd);
   el('cAllSub').textContent = `${DATA.totals.turns.toLocaleString()} turns`;
 
-  // ── today's model mix: one bar, zero clicks ──
   const mix = new Map();
   for (const e of todayEvs) {
     const m = DATA.dict.models[e[T2.M]];
@@ -1541,7 +1716,6 @@ function renderClaudeCompact() {
       `<span class="k"><span class="dot" style="background:${hue(m)}"></span>${short(m)} ${usd(g.cost)}</span>`).join('');
   }
 
-  // ── 14-day trend ──
   const days = DATA.daily.slice(-14);
   const dmax = Math.max(...days.map(d => d.cost), 1e-9);
   el('cSpark').innerHTML = days.map(d =>
@@ -1566,7 +1740,7 @@ function compactQuota(qs) {
       <div class="track"><i data-w="${Math.min(100,l.percent)}"></i>
       ${p ? `<span class="pace ${tone}" style="left:${Math.min(100,p.projected).toFixed(1)}%"></span>` : ''}</div>
       <div class="pct">${l.percent}%</div><div class="note">${note}</div></div>`;
-  }).join('') : '<div class="empty">Codex quota unavailable — history is unaffected.</div>';
+  }).join('') : '<div class="empty">Quota unavailable — history is unaffected.</div>';
   requestAnimationFrame(() => el('cQuota').querySelectorAll('.track > i').forEach(i => { i.style.width = i.dataset.w + '%'; }));
 }
 
@@ -1582,10 +1756,10 @@ function renderCodexCompact(combined = false) {
     el('cFoot').textContent = 'ordinary ChatGPT chats are not included';
     return;
   }
-  el('chipText').textContent = combined ? 'Claude + Codex · separate limits' : `${c?.quota?.plan || 'Codex'} · Codex only`;
+  el('chipText').textContent = combined ? 'Claude + Codex + Gemini · separate limits' : `${c?.quota?.plan || 'Codex'} · Codex only`;
   el('planPop').innerHTML = '<div class="hint">Equivalent API cost is a burn proxy, not a bill. '
     + 'Ordinary ChatGPT web/app conversations are not included.</div>';
-  compactQuota(combined ? [DATA.quota,c?.quota] : [c?.quota]);
+  compactQuota(combined ? [DATA.quota,c?.quota,DATA.gemini?.quota] : [c?.quota]);
   el('cTodayLabel').textContent = 'Today';
   el('cBlockLabel').textContent = 'Selected range';
   el('cDayLabel').textContent = 'Last 30 days';
@@ -1599,18 +1773,27 @@ function renderCodexCompact(combined = false) {
   const codex30 = (c?.daily || []).filter(d => d.day >= monthDay).reduce((s,d) => s + d.cost,0);
   const claudeTodayE = combined ? DATA.events.filter(e => iso(dayStart(e[T.TS])) === today) : [];
   const claude30 = combined ? DATA.events.filter(e => e[T.TS] >= monthStart.getTime()).reduce((s,e)=>s+e[T.COST],0) : 0;
-  const todayCost = (codexToday?.cost || 0) + claudeTodayE.reduce((s,e)=>s+e[T.COST],0);
-  const allCost = (c?.totals?.cost || 0) + (combined ? DATA.totals.cost : 0);
+  const geminiTodayCost = combined ? ((DATA.gemini?.daily || []).find(d => d.day === today)?.cost || 0) : 0;
+  const gemini30Cost = combined ? ((DATA.gemini?.daily || []).filter(d => d.day >= monthDay).reduce((s,d)=>s+d.cost,0)) : 0;
+  const todayCost = (codexToday?.cost || 0) + claudeTodayE.reduce((s,e)=>s+e[T.COST],0) + geminiTodayCost;
+  const allCost = (c?.totals?.cost || 0) + (combined ? DATA.totals.cost + (DATA.gemini?.totals?.cost || 0) : 0);
   animate(el('cToday'),todayCost,usd); el('cTodaySub').textContent = 'calendar day';
   animate(el('cBlock'),selected.tot.cost,usd); el('cBlockSub').textContent = rangeLabel();
-  animate(el('cDay'),codex30 + claude30,usd); el('cDaySub').textContent = 'calendar days';
+  animate(el('cDay'),codex30 + claude30 + gemini30Cost,usd); el('cDaySub').textContent = 'calendar days';
   animate(el('cAll'),allCost,usd); el('cAllSub').textContent = 'equivalent API cost';
 
   const modelMix = new Map();
   for (const m of codexToday?.models || []) modelMix.set(`Codex · ${m.name}`, m.input + m.output);
-  if (combined) for (const e of claudeTodayE) {
-    const name = `Claude · ${DATA.dict.models[e[T.M]]}`;
-    modelMix.set(name,(modelMix.get(name)||0) + e[T.IN] + e[T.OUT]);
+  if (combined) {
+    for (const e of claudeTodayE) {
+      const name = `Claude · ${DATA.dict.models[e[T.M]]}`;
+      modelMix.set(name,(modelMix.get(name)||0) + e[T.IN] + e[T.OUT]);
+    }
+    const gToday = (DATA.gemini?.daily || []).find(d => d.day === today);
+    for (const m of gToday?.models || []) {
+      const name = `Gemini · ${m.name}`;
+      modelMix.set(name,(modelMix.get(name)||0) + m.input + m.output);
+    }
   }
   const mixRows = [...modelMix.entries()].sort((a,b)=>b[1]-a[1]);
   const mixTotal = mixRows.reduce((s,x)=>s+x[1],0);
@@ -1620,22 +1803,74 @@ function renderCodexCompact(combined = false) {
 
   const trend = new Map();
   for (const d of (c?.daily || []).slice(-14)) trend.set(d.day,(trend.get(d.day)||0)+d.cost);
-  if (combined) for (const d of DATA.daily.slice(-14)) trend.set(d.day,(trend.get(d.day)||0)+d.cost);
+  if (combined) {
+    for (const d of DATA.daily.slice(-14)) trend.set(d.day,(trend.get(d.day)||0)+d.cost);
+    for (const d of (DATA.gemini?.daily || []).slice(-14)) trend.set(d.day,(trend.get(d.day)||0)+d.cost);
+  }
   const days = [...trend.entries()].sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);
   const max = Math.max(...days.map(d=>d[1]),1e-9);
   el('cSpark').innerHTML = days.map(([day,cost]) => `<i style="height:${Math.max(2,cost/max*100).toFixed(1)}%" title="${fmtDay(day)} — ${usd(cost)}"></i>`).join('');
   el('cSparkLab').textContent = `last ${days.length} active days · equivalent API cost`;
-  el('cFoot').textContent = combined ? 'Claude + Codex · separate quota limits' : `Codex via ccusage ${c?.source?.version || ''}`;
+  el('cFoot').textContent = combined ? 'Claude + Codex + Gemini · separate quota limits' : `Codex via ccusage ${c?.source?.version || ''}`;
+}
+
+function renderGeminiCompact(combined = false) {
+  const g = DATA?.gemini;
+  if (!g?.available && !combined) {
+    compactQuota([g?.quota]);
+    el('chipText').textContent = 'Gemini unavailable';
+    el('planPop').innerHTML = '<div class="hint">Antigravity CLI data is unavailable</div>';
+    for (const id of ['cToday','cBlock','cDay','cAll']) el(id).textContent = '—';
+    el('cMix').innerHTML = ''; el('cMixLab').textContent = g?.staleReason || 'Antigravity CLI unavailable';
+    el('cSpark').innerHTML = ''; el('cSparkLab').textContent = 'no Gemini history';
+    el('cFoot').textContent = 'Antigravity CLI logs';
+    return;
+  }
+  el('chipText').textContent = combined ? 'Claude + Codex + Gemini · separate limits' : `${g?.quota?.plan || 'Gemini'} · Gemini only`;
+  el('planPop').innerHTML = '<div class="hint">Equivalent API cost is a burn proxy, not a bill.</div>';
+  compactQuota(combined ? [DATA.quota, DATA.codex?.quota, g?.quota] : [g?.quota]);
+  el('cTodayLabel').textContent = 'Today';
+  el('cBlockLabel').textContent = 'Selected range';
+  el('cDayLabel').textContent = 'Last 30 days';
+  el('cAllLabel').textContent = 'All time';
+
+  const today = iso(dayStart(Date.now()));
+  const gToday = (g?.daily || []).find(d => d.day === today);
+  const selected = combined ? aggregateCombined() : aggregateGemini();
+  const monthStart = dayStart(Date.now()); monthStart.setDate(monthStart.getDate() - 29);
+  const monthDay = iso(monthStart);
+  const g30 = (g?.daily || []).filter(d => d.day >= monthDay).reduce((s,d) => s + d.cost, 0);
+  const todayCost = (gToday?.cost || 0);
+  const allCost = (g?.totals?.cost || 0);
+  animate(el('cToday'), todayCost, usd); el('cTodaySub').textContent = 'calendar day';
+  animate(el('cBlock'), selected.tot.cost, usd); el('cBlockSub').textContent = rangeLabel();
+  animate(el('cDay'), g30, usd); el('cDaySub').textContent = 'calendar days';
+  animate(el('cAll'), allCost, usd); el('cAllSub').textContent = 'equivalent API cost';
+
+  const modelMix = new Map();
+  for (const m of gToday?.models || []) modelMix.set(`Gemini · ${m.name}`, m.input + m.output);
+  const mixRows = [...modelMix.entries()].sort((a,b)=>b[1]-a[1]);
+  const mixTotal = mixRows.reduce((s,x)=>s+x[1],0);
+  el('cMix').innerHTML = mixRows.map(([m,v]) => `<i style="width:${(v/Math.max(mixTotal,1)*100).toFixed(1)}%;background:${hue(m)}"></i>`).join('');
+  el('cMixLab').innerHTML = mixRows.length ? mixRows.map(([m,v]) => `<span class="k"><span class="dot" style="background:${hue(m)}"></span>${short(m)} ${num(v)}</span>`).join('')
+    : '<span class="k">No activity yet today</span>';
+
+  const trend = new Map();
+  for (const d of (g?.daily || []).slice(-14)) trend.set(d.day,(trend.get(d.day)||0)+d.cost);
+  const days = [...trend.entries()].sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);
+  const max = Math.max(...days.map(d=>d[1]),1e-9);
+  el('cSpark').innerHTML = days.map(([day,cost]) => `<i style="height:${Math.max(2,cost/max*100).toFixed(1)}%" title="${fmtDay(day)} — ${usd(cost)}"></i>`).join('');
+  el('cSparkLab').textContent = `last ${days.length} active days · equivalent API cost`;
+  el('cFoot').textContent = 'Gemini via Antigravity CLI';
 }
 
 function renderCompact() {
   if (provider === 'claude') renderClaudeCompact();
-  else renderCodexCompact(provider === 'combined');
+  else if (provider === 'codex') renderCodexCompact(false);
+  else if (provider === 'gemini') renderGeminiCompact(false);
+  else renderCodexCompact(true);
 }
 
-// ══════════════════ VIEW STATE ══════════════════
-// Glancing is the common case, analysis the rare one — so the IDE panel opens
-// compact. The browser is where you go to dig, so it opens long.
 const store = {
   get: () => {
     try {
@@ -1672,7 +1907,7 @@ function applyView() {
   document.body.classList.toggle('long', view === 'long');
   el('viewToggle').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
   el('providerToggle').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.p === provider));
-  const who = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : 'Claude + Codex';
+  const who = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : provider === 'gemini' ? 'Gemini' : 'Claude + Codex + Gemini';
   el('viewTag').textContent = `${who} usage · ${view === 'compact' ? 'compact' : 'long view'}`;
   store.set(view);
   providerStore.set(provider);
@@ -1697,11 +1932,12 @@ el('refreshBtn').addEventListener('click', async () => {
   const button = el('refreshBtn');
   button.disabled = true; button.textContent = 'Refreshing…';
   if (vscode) {
-    vscode.postMessage('refreshCodex');
+    vscode.postMessage(provider === 'gemini' ? 'refreshGemini' : 'refreshCodex');
     return;
   }
   try {
-    const res = await fetch('/api/codex/refresh', { method:'POST' });
+    const url = provider === 'gemini' ? '/api/gemini/refresh' : '/api/codex/refresh';
+    const res = await fetch(url, { method:'POST' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     receive(await res.json());
   } catch {
