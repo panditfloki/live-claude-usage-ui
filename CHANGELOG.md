@@ -22,6 +22,8 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
   historical cost/token attribution still covers live and archived sessions through `ccusage`.
 - IDE periodic work pauses while the window is unfocused; provider watchers retry every 15 seconds.
 - Gemini remains honest when Antigravity exposes no account quota: `G —`, never a fabricated plan.
+- Gemini's undocumented protobuf is used only for self-identifying model strings; token counts,
+  timestamps and equivalent cost remain unknown rather than being inferred from guessed field paths.
 
 ## [1.3.0] — 2026-08-10
 

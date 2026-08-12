@@ -12,7 +12,7 @@ const GEMINI_DIR = path.join(os.homedir(), '.gemini', 'antigravity-cli');
 const CONVERSATIONS_DIR = path.join(GEMINI_DIR, 'conversations');
 const HISTORY_FILE = path.join(GEMINI_DIR, 'history.jsonl');
 const CACHE_FILE = path.join(os.tmpdir(), 'matra-gemini.json');
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 const TTL_MS = 5 * 60_000;
 const TIMEOUT_MS = 30_000;
 
@@ -94,7 +94,6 @@ function cwdMap() {
 
 function parseGenMetadataBuf(buf) {
   let model = 'gemini-unknown';
-  let input = null, output = null, cache = null, timestamp = 0;
 
   const str = buf.toString('utf8');
   const modelId = str.match(/gemini-\d+(?:\.\d+)+-[a-z0-9.-]+/i);
@@ -106,59 +105,10 @@ function parseGenMetadataBuf(buf) {
     if (displayName[3]) model += `-${displayName[3].toLowerCase().replace(/\s+/g, '-')}`;
   }
 
-  function find(subBuf, path = []) {
-    let p = 0;
-    while (p < subBuf.length) {
-      let b;
-      try { b = subBuf[p++]; } catch { break; }
-      if (b === undefined) break;
-      const wireType = b & 0x07;
-      const fieldNum = b >> 3;
-      const currentPath = [...path, fieldNum];
-
-      if (wireType === 0) {
-        let val = 0, shift = 0;
-        while (p < subBuf.length) {
-          const byte = subBuf[p++];
-          val |= (byte & 0x7f) << shift;
-          shift += 7;
-          if ((byte & 0x80) === 0) break;
-        }
-
-        const pathStr = currentPath.join('.');
-        if (pathStr === '1.9.4.1' && val > 1700000000 && val < 2000000000 && !timestamp) timestamp = val * 1000;
-        else if (fieldNum === 1 && val > 1700000000 && val < 2000000000 && !timestamp) timestamp = val * 1000;
-
-        if (pathStr === '1.9.10.1') {
-          input = val;
-          if (output === null) output = 0;
-          if (cache === null) cache = 0;
-        }
-        if (pathStr === '1.9.8.1') {
-          output = val;
-          if (input === null) input = 0;
-          if (cache === null) cache = 0;
-        }
-      } else if (wireType === 2) {
-        let len = 0, shift = 0;
-        while (p < subBuf.length) {
-          const byte = subBuf[p++];
-          len |= (byte & 0x7f) << shift;
-          shift += 7;
-          if ((byte & 0x80) === 0) break;
-        }
-        if (p + len <= subBuf.length) {
-          find(subBuf.slice(p, p + len), currentPath);
-        }
-        p += len;
-      } else if (wireType === 1) p += 8;
-      else if (wireType === 5) p += 4;
-      else break;
-    }
-  }
-
-  find(buf);
-  return { model, input, output, cache, timestamp };
+  // Antigravity stores generation metadata as an undocumented protobuf. Model
+  // names are self-identifying strings; field paths are not a token schema.
+  // Keep unverified quantities unknown instead of turning guesses into money.
+  return { model, input: null, output: null, cache: null, timestamp: 0 };
 }
 
 function scanConversations() {
