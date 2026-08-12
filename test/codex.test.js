@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { normalise, quotaShape, latestQuota, present, commandPath, TTL_MS } = require('../codex');
+const { normalise, quotaShape, latestQuota, readTail, present, commandPath, TTL_MS, QUOTA_TAIL_BYTES } = require('../codex');
 
 const totals = {
   costUSD: 12.5,
@@ -74,7 +74,7 @@ test('selects the newest valid token_count rate-limit record', t => {
   fs.writeFileSync(oldFile, JSON.stringify({
     timestamp: '2026-08-08T10:00:00Z', type: 'event_msg',
     payload: { type: 'token_count', rate_limits: {
-      plan_type: 'plus', primary: { used_percent: 8, window_minutes: 10080, resets_at: 10 },
+        plan_type: 'plus', primary: { used_percent: 8, window_minutes: 10080, resets_at: 1787000000 },
     } },
   }) + '\n');
   fs.writeFileSync(newFile, [
@@ -82,15 +82,42 @@ test('selects the newest valid token_count rate-limit record', t => {
     JSON.stringify({
       timestamp: '2026-08-09T10:00:00Z', type: 'event_msg',
       payload: { type: 'token_count', rate_limits: {
-        plan_type: 'plus', primary: { used_percent: 22, window_minutes: 10080, resets_at: 20 },
+        plan_type: 'plus', primary: { used_percent: 22, window_minutes: 10080, resets_at: 1787000000 },
       } },
     }),
   ].join('\n') + '\n');
   const future = new Date(Date.now() + 1000);
   fs.utimesSync(newFile, future, future);
 
-  const quota = latestQuota(dir);
+  const quota = latestQuota(dir, Date.parse('2026-08-09T11:00:00Z'));
   assert.equal(quota.limits[0].percent, 22);
+});
+
+test('expired Codex quota evidence is unknown, never a frozen percentage', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'matra-codex-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'expired.jsonl'), JSON.stringify({
+    timestamp: '2026-08-09T10:00:00Z', type: 'event_msg',
+    payload: { type: 'token_count', rate_limits: {
+      primary: { used_percent: 99, window_minutes: 300, resets_at: 1786200000 },
+    } },
+  }) + '\n');
+  assert.equal(latestQuota(dir, Date.parse('2026-08-09T11:00:00Z')), null);
+});
+
+test('hot quota parsing is bounded to the recent tail of a rollout', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'matra-codex-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'large.jsonl');
+  const event = JSON.stringify({
+    timestamp: '2026-08-09T10:00:00Z', type: 'event_msg',
+    payload: { type: 'token_count', rate_limits: {
+      primary: { used_percent: 37, window_minutes: 300, resets_at: 1787000000 },
+    } },
+  });
+  fs.writeFileSync(file, `${'x'.repeat(QUOTA_TAIL_BYTES + 4096)}\n${event}\n`);
+  assert.ok(Buffer.byteLength(readTail(file)) <= QUOTA_TAIL_BYTES);
+  assert.equal(latestQuota(dir, Date.parse('2026-08-09T11:00:00Z')).limits[0].percent, 37);
 });
 
 test('malformed or absent quota degrades to null', t => {

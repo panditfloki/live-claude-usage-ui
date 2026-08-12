@@ -14,6 +14,17 @@ function percent(limit) {
   return typeof limit?.percent === 'number' ? `${Math.round(limit.percent)}%` : '—';
 }
 
+function resetSuffix(limit, now) {
+  if (!limit?.resetsAt || limit.resetsAt <= now) return '';
+  const mins = Math.max(1, Math.ceil((limit.resetsAt - now) / 60_000));
+  const days = Math.floor(mins / 1440);
+  const hours = Math.floor((mins % 1440) / 60);
+  const rest = mins % 60;
+  const value = days ? `${days}d${hours ? ` ${hours}h` : ''}`
+    : hours ? `${hours}h${rest ? ` ${rest}m` : ''}` : `${rest}m`;
+  return ` (${value})`;
+}
+
 function primaryCodexLimit(codexData) {
   const limits = codexData?.quota?.limits || [];
   return limits.find(l => l.kind === 'primary') || limits[0] || null;
@@ -32,7 +43,10 @@ function geminiToday(geminiData, now = Date.now()) {
   return (geminiData?.daily || []).find(row => row.day === localDay(now)) || null;
 }
 
-function statusSummary(metric, claudeData, claudeQuota, codexData, geminiData, now = Date.now()) {
+function statusSummary(metric, claudeData, claudeQuota, codexData, geminiData, now = Date.now(), options = {}) {
+  const displayMode = options.displayMode || 'compact';
+  const warningThreshold = Number(options.warningThreshold ?? 80);
+  const errorThreshold = Number(options.errorThreshold ?? 95);
   const claudeSession = claudeQuota?.limits?.find(l => l.kind === 'session') || null;
   const codexPrimary = primaryCodexLimit(codexData);
   const geminiPrimary = primaryGeminiLimit(geminiData);
@@ -42,11 +56,14 @@ function statusSummary(metric, claudeData, claudeQuota, codexData, geminiData, n
 
   let label;
   if (metric === 'quota') {
-    label = `C ${percent(claudeSession)} · X ${percent(codexPrimary)} · G ${percent(geminiPrimary)}`;
+    const suffix = limit => displayMode === 'full' ? resetSuffix(limit, now) : '';
+    label = `C ${percent(claudeSession)}${suffix(claudeSession)} · X ${percent(codexPrimary)}${suffix(codexPrimary)} · G ${percent(geminiPrimary)}${suffix(geminiPrimary)}`;
   } else if (metric === 'today') {
-    label = `C ${usd(cToday?.cost || 0)} · X ${usd(xToday?.cost || 0)} · G ${usd(gToday?.cost || 0)} today`;
+    const gCost = gToday && gToday.cost != null ? usd(gToday.cost) : '$0';
+    label = `C ${usd(cToday?.cost || 0)} · X ${usd(xToday?.cost || 0)} · G ${gCost} today`;
   } else if (metric === 'total') {
-    label = `C ${usd(claudeData?.totals?.cost || 0)} · X ${usd(codexData?.totals?.cost || 0)} · G ${usd(geminiData?.totals?.cost || 0)} total`;
+    const gCost = geminiData?.totals?.cost != null ? usd(geminiData.totals.cost) : '$0';
+    label = `C ${usd(claudeData?.totals?.cost || 0)} · X ${usd(codexData?.totals?.cost || 0)} · G ${gCost} total`;
   } else {
     // Codex and Gemini have separate primary quotas
     const block = claudeData?.block;
@@ -58,10 +75,15 @@ function statusSummary(metric, claudeData, claudeQuota, codexData, geminiData, n
     ...(codexData?.quota?.limits || []),
     ...(geminiData?.quota?.limits || []),
   ].map(l => l.percent).filter(Number.isFinite);
+  const highest = percents.length ? Math.max(...percents) : null;
+  const severity = highest != null && highest >= errorThreshold ? 'error'
+    : highest != null && highest >= warningThreshold ? 'warning' : 'normal';
 
   return {
     label,
-    warn: percents.some(p => p >= 80),
+    warn: severity !== 'normal',
+    severity,
+    highestPercent: highest,
     claudeSession,
     codexPrimary,
     geminiPrimary,
@@ -70,4 +92,4 @@ function statusSummary(metric, claudeData, claudeQuota, codexData, geminiData, n
   };
 }
 
-module.exports = { localDay, primaryCodexLimit, primaryGeminiLimit, statusSummary };
+module.exports = { localDay, primaryCodexLimit, primaryGeminiLimit, resetSuffix, statusSummary };

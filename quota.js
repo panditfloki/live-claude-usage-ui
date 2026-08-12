@@ -13,6 +13,7 @@
 // The access token is read at request time, held only in a local, and is never
 // logged, persisted, or sent anywhere except api.anthropic.com.
 const { execFile } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -41,14 +42,48 @@ const COLD_BACKOFF_MS = 60_000;        // 429 with nothing to show — retry, bu
 // other, and the cache stayed stale for hours. Whoever gets 429'd now writes the
 // backoff to the same file, so the pair behaves like one polite client.
 const CACHE_FILE = path.join(os.tmpdir(), 'claude-usage-meter-quota.json');
+const LOCK_FILE = `${CACHE_FILE}.lock`;
+const LOCK_MAX_AGE_MS = 15_000;
+const LOCK_WAIT_MS = 8_000;
 
 let mem = null;          // { at, data, nextTryAt?, failStreak? }
 let profileCache = null; // { at, data }
+let refreshing = null;
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function maskAccount(value) {
+  if (!value) return null;
+  const text = String(value);
+  const at = text.indexOf('@');
+  if (at < 0) return text.length <= 8 ? text : `${text.slice(0, 4)}…${text.slice(-4)}`;
+  const local = text.slice(0, at);
+  const domain = text.slice(at + 1);
+  const shown = local.length <= 2 ? local[0] || '*' : local.slice(0, 2);
+  return `${shown}${'*'.repeat(Math.max(1, Math.min(3, local.length - shown.length)))}@${domain}`;
+}
+
+function accountMeta(tok = null) {
+  let account = null;
+  try {
+    account = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).oauthAccount || null;
+  } catch {}
+  const stable = account?.accountUuid || account?.organizationUuid || account?.emailAddress || tok;
+  if (!stable) return { key: null, display: null };
+  return {
+    key: crypto.createHash('sha256').update(String(stable)).digest('hex').slice(0, 24),
+    display: maskAccount(account?.emailAddress),
+  };
+}
+
+function cacheMatches(cache, accountKey) {
+  return !!cache && !!accountKey && cache.accountKey === accountKey;
+}
 
 // Always take the NEWER of our in-memory copy and the file — the other process
 // may have refreshed it since. Preferring `mem` blindly would make one process
 // poll on a stale clock and re-trigger the 429 we're trying to avoid.
-function readCache() {
+function readCache(accountKey = null) {
   let disk = null;
   try {
     const c = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
@@ -57,30 +92,72 @@ function readCache() {
   if (disk && (!mem || (disk.at || 0) > (mem.at || 0) || (disk.nextTryAt || 0) > (mem.nextTryAt || 0))) {
     mem = disk;
   }
+  if (accountKey && !cacheMatches(mem, accountKey)) return null;
   return mem;
 }
 
 function writeCache(patch) {
   // Merge, don't replace — a backoff write must not clobber the cached data,
   // and a data write resets the backoff (success = the limiter is happy).
-  const cur = readCache() || {};
+  const existing = readCache();
+  const cur = patch.accountKey && existing?.accountKey !== patch.accountKey ? {} : (existing || {});
   mem = { ...cur, ...patch };
-  try { fs.writeFileSync(CACHE_FILE, JSON.stringify(mem)); } catch {}
+  const temp = `${CACHE_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temp, JSON.stringify(mem));
+    fs.renameSync(temp, CACHE_FILE);
+  } catch {
+    try { fs.unlinkSync(temp); } catch {}
+  }
 }
 
-function sharedNextTryAt() {
-  const c = readCache();
+function sharedNextTryAt(accountKey) {
+  const c = readCache(accountKey);
   return (c && c.nextTryAt) || 0;
 }
 
-function noteRateLimited() {
-  const c = readCache() || {};
+function noteRateLimited(accountKey) {
+  const c = readCache(accountKey) || { accountKey };
   const streak = (c.failStreak || 0) + 1;
   const hasData = !!c.data;
   // Exponential: 5 → 10 → 20 → 40 min (cold start stays gentle but linear-ish).
   const base = hasData ? BACKOFF_MS : COLD_BACKOFF_MS;
   const wait = Math.min(base * Math.pow(2, streak - 1), BACKOFF_MAX_MS);
-  writeCache({ nextTryAt: Date.now() + wait, failStreak: streak });
+  writeCache({ accountKey, nextTryAt: Date.now() + wait, failStreak: streak });
+}
+
+function removeStaleLock(now = Date.now()) {
+  try {
+    const stat = fs.statSync(LOCK_FILE);
+    if (now - stat.mtimeMs > LOCK_MAX_AGE_MS) fs.unlinkSync(LOCK_FILE);
+  } catch {}
+}
+
+function acquireLock() {
+  removeStaleLock();
+  try {
+    const owner = `${process.pid}:${crypto.randomUUID()}`;
+    const fd = fs.openSync(LOCK_FILE, 'wx');
+    fs.writeFileSync(fd, JSON.stringify({ owner, at: Date.now() }));
+    return () => {
+      try { fs.closeSync(fd); } catch {}
+      try {
+        const lock = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
+        if (lock.owner === owner) fs.unlinkSync(LOCK_FILE);
+      } catch {}
+    };
+  } catch { return null; }
+}
+
+async function waitForRefresh(accountKey, after, timeoutMs = LOCK_WAIT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const cache = readCache(accountKey);
+    if (cache?.data && cache.at >= after) return decorate(cache.data);
+    if (!fs.existsSync(LOCK_FILE)) break;
+    await delay(200);
+  }
+  return null;
 }
 
 function keychainToken() {
@@ -135,7 +212,7 @@ const TITLE = {
  *   kind, group, label, percent, severity, resetsAt, active
  * }>}>}  null on ANY failure — caller must degrade to the estimate.
  */
-async function get(url, tok) {
+async function get(url, tok, accountKey) {
   let res;
   try {
     res = await fetch(url, {
@@ -150,7 +227,7 @@ async function get(url, tok) {
   if (res.status === 429) {
     // Its Retry-After header is observed as 0 — useless. Record the strike in
     // the SHARED cache so the other process backs off with us.
-    noteRateLimited();
+    noteRateLimited(accountKey);
     return null;
   }
   if (!res.ok) return null;             // 401 (token rotated) / 404 (endpoint moved)
@@ -204,38 +281,58 @@ function decorate(data) {
 
 // Last known good, tagged so the UI can say "as of 4m ago" instead of pretending
 // the feature is gone. A stale percentage is vastly more useful than no bar.
-function stale(reason) {
-  const c = readCache();
+function stale(reason, accountKey) {
+  const c = readCache(accountKey);
   if (!c || !c.data) return null;
   return decorate({ ...c.data, stale: true, staleSince: c.at, staleReason: reason });
 }
 
 async function quota({ force = false } = {}) {
-  const now = Date.now();
+  if (refreshing) return refreshing;
+  refreshing = quotaOnce({ force }).finally(() => { refreshing = null; });
+  return refreshing;
+}
 
-  const cached = readCache();
+async function quotaOnce({ force = false } = {}) {
+  const now = Date.now();
+  const tok = await token();
+  const identity = accountMeta(tok);
+  if (!tok || !identity.key) return null;
+
+  const cached = readCache(identity.key);
   if (!force && cached && cached.data && now - cached.at < TTL_MS) return decorate(cached.data);
 
   // Backing off from a 429 — the backoff is SHARED across processes via the cache
   // file, so the server and the extension sit it out together instead of taking
   // turns re-tripping the limiter (the deadlock that once kept the quota stale
   // for five hours while the endpoint was actually fine).
-  if (now < sharedNextTryAt()) return stale('rate-limited');
+  if (now < sharedNextTryAt(identity.key)) return stale('rate-limited', identity.key);
 
-  const tok = await token();
-  if (!tok) return stale('no token');
-
-  const usage = await get(USAGE, tok);
-  if (!usage || !Array.isArray(usage.limits)) {
-    return stale(now < sharedNextTryAt() ? 'rate-limited' : 'unreachable');
+  let release = acquireLock();
+  if (!release) {
+    const shared = await waitForRefresh(identity.key, now);
+    if (shared) return shared;
+    release = acquireLock();
+    if (!release) return stale('refresh busy', identity.key);
   }
+
+  try {
+    // A second process may have completed between our initial read and lock acquisition.
+    const newer = readCache(identity.key);
+    if (newer?.data && newer.at >= now) return decorate(newer.data);
+
+    const usage = await get(USAGE, tok, identity.key);
+    if (!usage || !Array.isArray(usage.limits)) {
+      return stale(Date.now() < sharedNextTryAt(identity.key) ? 'rate-limited' : 'unreachable', identity.key);
+    }
 
   // Plan/tier/status barely changes — refetch it a couple of times a day, not
   // on every poll. Halving the request rate is what keeps us under the limit.
-  let profile = profileCache && now - profileCache.at < PROFILE_TTL_MS ? profileCache.data : null;
+  let profile = profileCache?.accountKey === identity.key && now - profileCache.at < PROFILE_TTL_MS
+    ? profileCache.data : null;
   if (!profile) {
-    profile = await get(PROFILE, tok);
-    if (profile) profileCache = { at: now, data: profile };
+    profile = await get(PROFILE, tok, identity.key);
+    if (profile) profileCache = { accountKey: identity.key, at: now, data: profile };
     else if (cached?.data?.planInfo) profile = { organization: cached.data.planInfo._raw || {} };
   }
 
@@ -283,10 +380,23 @@ async function quota({ force = false } = {}) {
     blurb: org.organization_type === 'claude_max' ? '5× more usage than Pro' : null,
   };
 
-  const data = { plan: plan.label, fetchedAt: now, limits, credits, planInfo: plan };
+  const data = { plan: plan.label, account: identity.display, fetchedAt: now, limits, credits, planInfo: plan };
   // Success clears the shared backoff — the limiter is demonstrably happy again.
-  writeCache({ at: now, data, nextTryAt: 0, failStreak: 0 });
-  return decorate(data);
+    writeCache({ accountKey: identity.key, at: now, data, nextTryAt: 0, failStreak: 0 });
+    return decorate(data);
+  } finally {
+    release();
+  }
 }
 
-module.exports = { quota };
+module.exports = {
+  quota,
+  maskAccount,
+  accountMeta,
+  cacheMatches,
+  acquireLock,
+  waitForRefresh,
+  CACHE_FILE,
+  LOCK_FILE,
+  TTL_MS,
+};

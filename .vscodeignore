@@ -12,3 +12,5 @@ node_modules/**
 *.vsix
 agents/**
 test/**
+blob.bin
+blob_hex.txt

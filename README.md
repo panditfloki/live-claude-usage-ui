@@ -1,4 +1,4 @@
-# Mātrā — live Claude + Codex usage UI
+# Mātrā — live Claude + Codex + Gemini usage UI
 
 **मात्रा** — *measure*. Your Claude and Codex plan limits, tokens and equivalent API cost in
 one local dashboard, inside VS Code or any fork (Cursor, Antigravity, Windsurf).
@@ -144,7 +144,11 @@ media/dashboard.html   one page, two hosts
 
 ## Commands & settings
 
-- `Claude Usage: Open Dashboard` · `Claude Usage: Refresh Now`
+- `Mātrā: Open Dashboard` · `Mātrā: Refresh Now`
+- Refreshing a provider from either the IDE panel or localhost updates the shared cache; both
+  surfaces redraw without making a second provider request.
+- Status-bar settings include compact/full reset-time display, warning/error thresholds, and
+  optional local aliases for Claude and Codex accounts.
 - `claudeUsage.statusBar.metric` — `quota` (default) · `cost` · `today` · `total`
 - `claudeUsage.statusBar.show`
 

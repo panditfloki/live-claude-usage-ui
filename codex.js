@@ -15,6 +15,8 @@ const CACHE_FILE = path.join(os.tmpdir(), 'matra-codex.json');
 const TTL_MS = 5 * 60_000;
 const TIMEOUT_MS = 30_000;
 const MAX_BUFFER = 32 * 1024 * 1024;
+const QUOTA_FILE_LIMIT = 24;
+const QUOTA_TAIL_BYTES = 256 * 1024;
 
 let refreshing = null;
 
@@ -161,6 +163,23 @@ function sessionFiles(dirs = [CODEX_DIR, CODEX_ARCHIVE_DIR]) {
   return out.sort((a, b) => b.mtime - a.mtime);
 }
 
+function quotaFiles(dir = CODEX_DIR, limit = QUOTA_FILE_LIMIT) {
+  return listJsonl(dir, []).sort((a, b) => b.mtime - a.mtime).slice(0, limit);
+}
+
+function readTail(file, bytes = QUOTA_TAIL_BYTES) {
+  let fd;
+  try {
+    const stat = fs.statSync(file);
+    const length = Math.min(stat.size, bytes);
+    const buffer = Buffer.alloc(length);
+    fd = fs.openSync(file, 'r');
+    fs.readSync(fd, buffer, 0, length, stat.size - length);
+    return buffer.toString('utf8');
+  } catch { return ''; }
+  finally { if (fd !== undefined) try { fs.closeSync(fd); } catch {} }
+}
+
 // Read one line without guessing its length. A rollout's first line carries
 // base_instructions and runs ~17 KB on this disk, so a fixed 2 KB read returns
 // truncated JSON and JSON.parse fails on EVERY file — silently, since the
@@ -264,24 +283,47 @@ function quotaShape(rateLimits, observedAt) {
       unlimited: credits.unlimited === true,
       balance: credits.balance ?? null,
     },
+    account: codexAccount(),
   };
 }
 
-function latestQuota(dirs = [CODEX_DIR, CODEX_ARCHIVE_DIR]) {
+function codexAccount() {
+  try {
+    const auth = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.codex', 'auth.json'), 'utf8'));
+    const payload = auth.tokens?.id_token?.split('.')[1];
+    if (payload) {
+      const email = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')).email;
+      if (email) {
+        const [local, domain] = String(email).split('@');
+        return `${local.slice(0, 2)}${'*'.repeat(Math.max(1, Math.min(3, local.length - 2)))}@${domain}`;
+      }
+    }
+    const id = auth.tokens?.account_id;
+    return id ? `${String(id).slice(0, 4)}…${String(id).slice(-4)}` : null;
+  } catch { return null; }
+}
+
+function freshQuota(quota, now = Date.now()) {
+  if (!quota) return null;
+  const limits = (quota.limits || []).filter(limit => !limit.resetsAt || limit.resetsAt > now);
+  return limits.length ? { ...quota, limits } : null;
+}
+
+function latestQuota(dirs = null, now = Date.now()) {
   const files = Array.isArray(dirs) && dirs.length && typeof dirs[0] === 'object'
     ? dirs                                       // an already-walked file list
-    : sessionFiles(typeof dirs === 'string' ? [dirs] : dirs);
+    : dirs === null ? quotaFiles()
+      : sessionFiles(typeof dirs === 'string' ? [dirs] : dirs);
   let newest = null;
   for (const { file } of files) {
-    let lines;
-    try { lines = fs.readFileSync(file, 'utf8').split('\n'); } catch { continue; }
+    const lines = readTail(file).split('\n');
     for (let i = lines.length - 1; i >= 0; i--) {
       if (!lines[i].includes('"token_count"') || !lines[i].includes('"rate_limits"')) continue;
       try {
         const row = JSON.parse(lines[i]);
         if (row.type !== 'event_msg' || row.payload?.type !== 'token_count') continue;
         const observedAt = Date.parse(row.timestamp) || 0;
-        const q = quotaShape(row.payload.rate_limits, observedAt || Date.now());
+        const q = freshQuota(quotaShape(row.payload.rate_limits, observedAt || now), now);
         if (q && q.limits.length) {
           if (!newest || observedAt > newest.observedAt) newest = { observedAt, quota:q };
           // Lines are newest-last. Once this file yields a valid limit, older
@@ -323,9 +365,10 @@ function present(cache, quota, now = Date.now(), folders = new Map()) {
 }
 
 function read() {
-  // One directory walk feeds both the quota record and the folder map.
+  // Complete live+archive history is needed for attribution, but quota is a
+  // separate hot path over bounded tails of recent live rollouts.
   const files = sessionFiles();
-  return present(readCache(), latestQuota(files), Date.now(), cwdMap(files));
+  return present(readCache(), latestQuota(), Date.now(), cwdMap(files));
 }
 
 async function refresh({ force = false } = {}) {
@@ -360,6 +403,10 @@ module.exports = {
   normalise,
   quotaShape,
   latestQuota,
+  freshQuota,
+  quotaFiles,
+  readTail,
+  codexAccount,
   present,
   commandPath,
   binDirs,
@@ -373,4 +420,6 @@ module.exports = {
   CODEX_DIR,
   CODEX_ARCHIVE_DIR,
   TTL_MS,
+  QUOTA_FILE_LIMIT,
+  QUOTA_TAIL_BYTES,
 };

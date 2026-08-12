@@ -8,6 +8,23 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-08-12
+
+### Added
+- One provider refresh now writes one shared cache and redraws both the IDE panel and localhost.
+- Provider-specific Claude, Codex and Gemini refresh actions, plus Refresh All in Combined view.
+- Compact/full status-meter modes, configurable warning/error thresholds, and local account aliases.
+
+### Changed
+- Claude quota cache is scoped to a non-reversible account fingerprint, uses in-process single-flight
+  and a short cross-process lock, and never displays another account's stale data.
+- Codex quota reads only bounded tails from the newest live rollouts and discards expired evidence;
+  historical cost/token attribution still covers live and archived sessions through `ccusage`.
+- IDE periodic work pauses while the window is unfocused; provider watchers retry every 15 seconds.
+- Gemini remains honest when Antigravity exposes no account quota: `G —`, never a fabricated plan.
+
+## [1.3.0] — 2026-08-10
+
 ### Added
 - **Gemini parity (v1.3.0):** measured Antigravity CLI token/session/workspace history across
   `Gemini` and `Combined` views, plus an explicit `G —` status-bar quota state. Antigravity's

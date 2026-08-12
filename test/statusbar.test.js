@@ -39,6 +39,16 @@ test('quota label keeps Claude, Codex, and Gemini denominators separate', () => 
   assert.equal(out.codexPrimary.kind, 'primary');
   assert.equal(out.geminiPrimary.kind, 'primary');
   assert.equal(out.warn, true, 'any provider limit at 80% should warn');
+  assert.equal(out.severity, 'warning');
+});
+
+test('thresholds and optional reset-time display are configurable', () => {
+  const timed = { limits: [{ kind: 'session', percent: 92, resetsAt: now + 90 * 60_000 }] };
+  const out = statusSummary('quota', claudeData, timed, codexData, geminiData, now, {
+    displayMode: 'full', warningThreshold: 90, errorThreshold: 92,
+  });
+  assert.match(out.label, /^C 92% \(1h 30m\)/);
+  assert.equal(out.severity, 'error');
 });
 
 test('missing Codex or Gemini quota is explicit', () => {

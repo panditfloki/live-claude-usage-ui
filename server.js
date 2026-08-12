@@ -5,9 +5,10 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { snapshot, PROJECTS_DIR } = require('./parser');
-const { quota } = require('./quota');
+const claude = require('./quota');
 const codex = require('./codex');
 const gemini = require('./gemini');
+const { watchCacheChanges } = require('./refresh-sync');
 
 const PORT = Number(process.env.PORT || 4317);
 const clients = new Set();
@@ -16,19 +17,45 @@ let geminiPending;
 
 // Same payload the extension posts to its webview, so both front-ends can share
 // one render() — local transcript data plus real quotas for Claude, Codex, and Gemini.
-async function payload({ forceCodex = false, forceGemini = false } = {}) {
-  if (forceCodex) await codex.refresh({ force: true });
-  if (forceGemini) await gemini.refresh({ force: true });
+async function payload({ forceClaude = false, forceCodex = false, forceGemini = false } = {}) {
+  const [q] = await Promise.all([
+    claude.quota({ force: forceClaude }).catch(() => null),
+    forceCodex ? codex.refresh({ force: true }).catch(() => null) : Promise.resolve(),
+    forceGemini ? gemini.refresh({ force: true }).catch(() => null) : Promise.resolve(),
+  ]);
   const data = snapshot();
-  data.quota = await quota().catch(() => null);
+  data.quota = q;
   data.codex = codex.read();
   data.gemini = gemini.read();
   return data;
 }
 
 async function push() {
-  const frame = `data: ${JSON.stringify(await payload())}\n\n`;
-  for (const res of clients) res.write(frame);
+  try {
+    const frame = `data: ${JSON.stringify(await payload())}\n\n`;
+    for (const res of clients) res.write(frame);
+  } catch {}
+}
+
+function resilientWatch(dir, accepts, onChange) {
+  let inner;
+  let closed = false;
+  const attach = () => {
+    if (closed || inner || !fs.existsSync(dir)) return;
+    try {
+      inner = fs.watch(dir, { recursive: true }, (_event, file) => {
+        if (file && accepts(String(file))) onChange(String(file));
+      });
+      inner.on('error', () => {
+        try { inner.close(); } catch {}
+        inner = undefined;
+      });
+    } catch { inner = undefined; }
+  };
+  attach();
+  const retry = setInterval(attach, 15_000);
+  retry.unref?.();
+  return { close() { closed = true; clearInterval(retry); try { inner?.close(); } catch {} } };
 }
 
 // Coalesce the burst of writes a single assistant turn produces.
@@ -49,21 +76,17 @@ setInterval(() => codex.refresh().then(push).catch(() => {}), codex.TTL_MS).unre
 gemini.refresh().then(push).catch(() => {});
 setInterval(() => gemini.refresh().then(push).catch(() => {}), gemini.TTL_MS).unref?.();
 
-try {
-  fs.watch(codex.CODEX_DIR, { recursive: true }, (_e, file) => {
-    if (!file || !file.endsWith('.jsonl')) return;
+resilientWatch(codex.CODEX_DIR, file => file.endsWith('.jsonl'), () => {
     clearTimeout(codexPending);
     codexPending = setTimeout(() => codex.refresh({ force: true }).then(push).catch(() => {}), 3_000);
-  });
-} catch {}
+});
 
-try {
-  fs.watch(gemini.CONVERSATIONS_DIR, { recursive: true }, (_e, file) => {
-    if (!gemini.isConversationFile(file)) return;
+resilientWatch(gemini.CONVERSATIONS_DIR, gemini.isConversationFile, () => {
     clearTimeout(geminiPending);
     geminiPending = setTimeout(() => gemini.refresh({ force: true }).then(push).catch(() => {}), 3_000);
-  });
-} catch {}
+});
+
+watchCacheChanges([claude.CACHE_FILE, codex.CACHE_FILE, gemini.CACHE_FILE], push);
 
 http.createServer(async (req, res) => {
   if (req.url === '/api/usage') {
@@ -85,9 +108,17 @@ http.createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(JSON.stringify(await payload({ forceCodex: true })));
   }
+  if (req.method === 'POST' && req.url === '/api/claude/refresh') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify(await payload({ forceClaude: true })));
+  }
   if (req.method === 'POST' && req.url === '/api/gemini/refresh') {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(JSON.stringify(await payload({ forceGemini: true })));
+  }
+  if (req.method === 'POST' && req.url === '/api/refresh') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify(await payload({ forceClaude: true, forceCodex: true, forceGemini: true })));
   }
   res.writeHead(200, {
     'content-type': 'text/html; charset=utf-8',

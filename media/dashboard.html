@@ -901,45 +901,56 @@ function selectedGeminiDays() {
 }
 
 function aggregateGemini() {
-  if (!DATA?.gemini?.available) return { tot:{ cost:0, input:0, output:0, reasoningOutput:0, cacheWrite:0, cacheRead:0, tokens:0, turns:0 }, days:[], modelRows:[], billable:0, projects:[], attribution:{ cost:0, unattributedCost:0, unattributedSessions:0, folders:0 }, sessions:0, activeDays:0 };
+  if (!DATA?.gemini?.available) return { tot:{ cost:null, input:null, output:null, reasoningOutput:0, cacheWrite:0, cacheRead:null, tokens:null, turns:0 }, days:[], modelRows:[], billable:null, projects:[], attribution:{ cost:null, unattributedCost:null, unattributedSessions:0, folders:0 }, sessions:0, activeDays:0 };
   const rows = selectedGeminiDays();
-  const tot = { cost:0, input:0, output:0, reasoningOutput:0, cacheWrite:0, cacheRead:0, tokens:0, turns:0 };
+  const tot = { cost:null, input:null, output:null, reasoningOutput:0, cacheWrite:0, cacheRead:null, tokens:null, turns:0 };
   const perModel = new Map();
   const days = rows.map(row => {
-    for (const k of Object.keys(tot)) tot[k] += Number(row[k]) || 0;
+    if (row.cost != null) tot.cost = (tot.cost || 0) + row.cost;
+    if (row.input != null) tot.input = (tot.input || 0) + row.input;
+    if (row.output != null) tot.output = (tot.output || 0) + row.output;
+    if (row.cacheRead != null) tot.cacheRead = (tot.cacheRead || 0) + row.cacheRead;
+    if (row.tokens != null) tot.tokens = (tot.tokens || 0) + row.tokens;
+    tot.turns += row.turns;
+
     const byModel = new Map();
     for (const model of row.models || []) {
-      const g = perModel.get(model.name) || { key:model.name, input:0, output:0, reasoningOutput:0, tokens:0, cost:null };
-      g.input += model.input; g.output += model.output;
-      g.tokens += model.tokens; g.cost = (g.cost || 0) + (model.cost || 0);
+      const g = perModel.get(model.name) || { key:model.name, input:null, output:null, reasoningOutput:0, tokens:null, cost:null };
+      if (model.input != null) g.input = (g.input || 0) + model.input;
+      if (model.output != null) g.output = (g.output || 0) + model.output;
+      if (model.tokens != null) g.tokens = (g.tokens || 0) + model.tokens;
+      if (model.cost != null) g.cost = (g.cost || 0) + model.cost;
       perModel.set(model.name, g);
-      byModel.set(model.name, { tokens:model.input + model.output, cost:model.cost });
+      byModel.set(model.name, { tokens:model.tokens, cost:model.cost });
     }
-    return { day:row.day, cost:row.cost, tokens:row.input + row.output, byModel };
+    return { day:row.day, cost:row.cost, tokens:row.tokens, byModel };
   });
-  const billable = tot.input + tot.output;
-  const modelRows = [...perModel.values()].sort((a,b) => b.tokens - a.tokens)
-    .map(m => ({ ...m, share:billable ? (m.input + m.output) / billable * 100 : 0 }));
+  const billable = (tot.input != null && tot.output != null) ? (tot.input + tot.output) : null;
+  const modelRows = [...perModel.values()].sort((a,b) => (b.tokens || 0) - (a.tokens || 0))
+    .map(m => ({ ...m, share:billable ? ((m.input || 0) + (m.output || 0)) / billable * 100 : 0 }));
 
   const dirs = new Map();
-  let unattributedCost = 0, unattributedSessions = 0;
+  let unattributedCost = null, unattributedSessions = 0;
   for (const session of DATA?.gemini?.sessions || []) {
     if (!session.attributed || !session.folder) {
-      unattributedCost += session.cost; unattributedSessions++;
+      if (session.cost != null) unattributedCost = (unattributedCost || 0) + session.cost;
+      unattributedSessions++;
       continue;
     }
     const key = session.folder;
-    const g = dirs.get(key) || { key, cost:0, tokens:0, sessions:0 };
-    g.cost += session.cost; g.tokens += session.tokens; g.sessions++;
+    const g = dirs.get(key) || { key, cost:null, tokens:null, sessions:0 };
+    if (session.cost != null) g.cost = (g.cost || 0) + session.cost;
+    if (session.tokens != null) g.tokens = (g.tokens || 0) + session.tokens;
+    g.sessions++;
     dirs.set(key, g);
   }
-  const attributedCost = [...dirs.values()].reduce((a, g) => a + g.cost, 0);
+  const attributedCost = [...dirs.values()].reduce((a, g) => (g.cost != null ? a + g.cost : a), 0);
   const sessionDays = new Set(rows.map(r => r.day));
   const sessions = (DATA?.gemini?.sessions || []).filter(s =>
     !s.lastActivity || sessionDays.has(String(s.lastActivity).slice(0,10))).length;
   return {
     tot, days, modelRows, billable, hourly:false,
-    projects:[...dirs.values()].sort((a,b) => b.cost - a.cost).slice(0,12),
+    projects:[...dirs.values()].sort((a,b) => (b.cost || 0) - (a.cost || 0)).slice(0,12),
     attribution:{
       cost:attributedCost,
       unattributedCost,
@@ -977,11 +988,12 @@ function aggregateCombined() {
   }
   for (const d of gemini.days) {
     const g = perDay.get(d.day) || { day:d.day, cost:0, tokens:0, byModel:new Map() };
-    g.cost += d.cost; g.tokens += d.tokens;
+    // Add Gemini cost and tokens to the combined total.
     for (const [name, m] of d.byModel) {
       const key = `Gemini · ${name}`;
-      const cur = g.byModel.get(key) || { tokens:0, cost:0 };
-      cur.tokens += m.tokens; cur.cost = (cur.cost || 0) + (m.cost || 0);
+      const cur = g.byModel.get(key) || { tokens:null, cost:null };
+      if (m.tokens != null) cur.tokens = (cur.tokens || 0) + m.tokens;
+      if (m.cost != null) cur.cost = (cur.cost || 0) + m.cost;
       g.byModel.set(key, cur);
     }
     perDay.set(d.day, g);
@@ -991,18 +1003,19 @@ function aggregateCombined() {
     ...claude.modelRows.map(m => ({ ...m, key:`Claude · ${m.key}`, provider:'claude' })),
     ...codex.modelRows.map(m => ({ ...m, key:`Codex · ${m.key}`, provider:'codex', turns:null })),
     ...gemini.modelRows.map(m => ({ ...m, key:`Gemini · ${m.key}`, provider:'gemini' })),
-  ].map(m => ({ ...m, share:combinedBillable ? (m.input + m.output) / combinedBillable * 100 : 0 }))
-    .sort((a,b) => (b.input + b.output) - (a.input + a.output));
-  const cost = claude.tot.cost + codex.tot.cost + gemini.tot.cost;
+  ].map(m => ({ ...m, share:combinedBillable ? ((m.input || 0) + (m.output || 0)) / combinedBillable * 100 : 0 }))
+    .sort((a,b) => ((b.input || 0) + (b.output || 0)) - ((a.input || 0) + (a.output || 0)));
+  const cost = (claude.tot.cost || 0) + (codex.tot.cost || 0) + (gemini.tot.cost || 0);
   return {
     ...codex,
     tot:{
-      cost, input:claude.tot.input + codex.tot.input + gemini.tot.input,
-      output:claude.tot.output + codex.tot.output + gemini.tot.output,
-      reasoningOutput:codex.tot.reasoningOutput,
-      cacheWrite:claude.tot.cacheWrite + codex.tot.cacheWrite + gemini.tot.cacheWrite,
-      cacheRead:claude.tot.cacheRead + codex.tot.cacheRead + gemini.tot.cacheRead,
-      turns:claude.tot.turns + gemini.tot.turns,
+      cost,
+      input: (claude.tot.input || 0) + (codex.tot.input || 0) + (gemini.tot.input || 0),
+      output: (claude.tot.output || 0) + (codex.tot.output || 0) + (gemini.tot.output || 0),
+      reasoningOutput: codex.tot.reasoningOutput || 0,
+      cacheWrite: (claude.tot.cacheWrite || 0) + (codex.tot.cacheWrite || 0),
+      cacheRead: (claude.tot.cacheRead || 0) + (codex.tot.cacheRead || 0) + (gemini.tot.cacheRead || 0),
+      turns: (claude.tot.turns || 0) + (gemini.tot.turns || 0),
     },
     billable:combinedBillable,
     days:[...perDay.values()].sort((a,b) => a.day.localeCompare(b.day)),
@@ -1050,7 +1063,7 @@ function renderQuota(q) {
   el('quotaAge').textContent = q.stale
     ? `as of ${age < 1 ? 'under a minute' : age + 'm'} ago · ${REASON[q.staleReason] || q.staleReason}`
     : 'live';
-  el('quota').innerHTML = q.limits.map(l => {
+  const bars = q.limits.map(l => {
     const p = pace(l);
     // Colour by the PROJECTION, not the current bar — 13% used looks fine, but
     // 13% used with only 14% of the week gone is a different story entirely.
@@ -1075,6 +1088,7 @@ function renderQuota(q) {
       <div class="note">${note}</div>
     </div>`;
   }).join('');
+  el('quota').innerHTML = bars || '<div class="empty">Gemini account limits are not stored locally. Showing equivalent API cost.</div>';
   // Next frame, so the width transition actually plays.
   requestAnimationFrame(() => {
     el('quota').querySelectorAll('.track > i').forEach(i => { i.style.width = i.dataset.w + '%'; });
@@ -1518,41 +1532,59 @@ function drawGemini(combined = false) {
   const geminiToday = (DATA.gemini?.daily || []).find(d => d.day === iso(dayStart(Date.now())));
   const claudeToday = combined ? aggregate().evs.filter(e => iso(dayStart(e[T.TS])) === iso(dayStart(Date.now()))) : [];
   const codexToday = combined ? (DATA.codex?.daily || []).find(d => d.day === iso(dayStart(Date.now()))) : null;
-  const todayCost = (geminiToday?.cost || 0) + (codexToday?.cost || 0) + claudeToday.reduce((s,e) => s + e[T.COST], 0);
-  const allCost = combined ? DATA.totals.cost + (DATA.codex?.totals?.cost || 0) + (DATA.gemini?.totals?.cost || 0) : (DATA.gemini?.totals?.cost || 0);
+  const cTodayCost = claudeToday.reduce((s,e) => s + e[T.COST], 0);
+  const xTodayCost = (codexToday?.cost || 0);
+  const gTodayCost = geminiToday?.cost != null ? geminiToday.cost : 0;
+  const todayCost = combined ? cTodayCost + xTodayCost + gTodayCost : (geminiToday?.cost != null ? geminiToday.cost : null);
+  const allCost = combined ? DATA.totals.cost + (DATA.codex?.totals?.cost || 0) + (DATA.gemini?.totals?.cost || 0) : (DATA.gemini?.totals?.cost != null ? DATA.gemini.totals.cost : null);
 
-  animate(el('blockCost'), todayCost, usd);
-  el('blockSub').textContent = 'calendar day · equivalent API cost';
-  animate(el('dayCost'), a.tot.cost, usd);
-  el('daySub').textContent = `${num(a.billable)} input + output tokens`;
-  el('dayVerdict').textContent = 'Equivalent API cost — a burn proxy, not a bill.';
-  animate(el('allCost'), allCost, usd);
+  if (combined) {
+    animate(el('blockCost'), todayCost, usd);
+    el('blockSub').textContent = 'Claude + Codex + Gemini calendar day';
+    animate(el('dayCost'), a.tot.cost, usd);
+    el('daySub').textContent = `${num(a.billable)} input + output tokens`;
+    el('dayVerdict').textContent = 'Equivalent API cost — a burn proxy, not a bill.';
+    animate(el('allCost'), allCost, usd);
+  } else {
+    if (todayCost != null) animate(el('blockCost'), todayCost, usd);
+    else el('blockCost').textContent = '—';
+    el('blockSub').textContent = 'calendar day · equivalent API cost';
+    if (a.tot.cost != null) animate(el('dayCost'), a.tot.cost, usd);
+    else el('dayCost').textContent = '—';
+    el('daySub').textContent = `${num((a.tot.input || 0) + (a.tot.output || 0))} input + output tokens`;
+    el('dayVerdict').textContent = 'Equivalent API cost — a burn proxy, not a bill.';
+    if (allCost != null) animate(el('allCost'), allCost, usd);
+    else el('allCost').textContent = '—';
+  }
+
   el('allSub').textContent = combined
     ? `${DATA.stats.sessions + (DATA.codex?.sessions?.length || 0) + (DATA.gemini?.sessions?.length || 0)} local sessions`
     : `${DATA.gemini?.sessions?.length || 0} local Gemini sessions`;
   el('allVerdict').textContent = combined
-    ? 'Claude, Codex, and Gemini costs are summed; their quotas remain separate.'
+    ? 'Claude, Codex, and Gemini equivalent costs are summed.'
     : 'Antigravity / Gemini CLI session trajectory logs.';
 
   el('tiles').innerHTML = [
-    ['Equivalent cost', usd(a.tot.cost)],
-    ['Input', num(a.tot.input)], ['Output', num(a.tot.output)],
-    ['Cache read', num(a.tot.cacheRead)],
+    ['Equivalent cost', a.tot.cost != null ? usd(a.tot.cost) : '—'],
+    ['Input', a.tot.input != null ? num(a.tot.input) : '—'], ['Output', a.tot.output != null ? num(a.tot.output) : '—'],
+    ['Cache read', a.tot.cacheRead != null ? num(a.tot.cacheRead) : '—'],
     ['Active days', a.activeDays], ['Sessions', a.sessions],
     ['Providers', combined ? '3' : 'Gemini'],
   ].map(([k,v]) => `<div class="tile"><span>${k}</span><b>${v}</b></div>`).join('');
 
-  renderChart(a, { modelCost:true });
+  if (a.tot.cost != null) renderChart(a, { modelCost:true });
+  else el('chart').innerHTML = '<div class="empty" style="padding-top:60px">No cost data in this range.</div>';
+
   el('models').innerHTML = a.modelRows.length ? a.modelRows.map(m => `
     <tr><td><span class="dot" style="background:${hue(m.key)}"></span>${short(m.key)}</td>
-    <td>${m.turns == null ? '—' : m.turns}</td><td>${num(m.input)}</td><td>${num(m.output)}</td>
+    <td>${m.turns == null ? '—' : m.turns}</td><td>${m.input == null ? '—' : num(m.input)}</td><td>${m.output == null ? '—' : num(m.output)}</td>
     <td>${m.share.toFixed(1)}%</td><td>${m.cost == null ? '—' : usd(m.cost)}</td></tr>`).join('')
     : '<tr><td colspan="6" class="empty">No activity in this range.</td></tr>';
 
   const renderProjects = (rows, empty = 'No Gemini folder data.') => rows.length ? rows.map(p => `
     <div class="row"><span class="name" title="${p.key}">${projLabel(p.key)}</span>
-    <span class="bar"><i data-w="${(p.cost / Math.max(...rows.map(x=>x.cost),1e-9)*100).toFixed(1)}" style="background:var(--gemini)"></i></span>
-    <span class="val">${usd(p.cost)}</span></div>`).join('') : `<div class="empty">${empty}</div>`;
+    <span class="bar"><i data-w="${p.cost != null ? (p.cost / Math.max(...rows.map(x=>x.cost||0),1e-9)*100).toFixed(1) : 0}" style="background:var(--gemini)"></i></span>
+    <span class="val">${p.cost != null ? usd(p.cost) : '—'}</span></div>`).join('') : `<div class="empty">${empty}</div>`;
 
   if (combined) {
     el('projTitle').textContent = 'By project';
@@ -1575,10 +1607,10 @@ function drawGemini(combined = false) {
     ['Output',a.tot.output,'var(--geminiflash)'],
     ['Input',a.tot.input,'var(--gemini)'],
   ];
-  const max = Math.max(...mix.map(x=>x[1]),1);
+  const max = Math.max(...mix.map(x=>x[1]||0),1);
   el('mix').innerHTML = mix.map(([n,v,c]) => `<div class="row"><span class="name">${n}</span>
-    <span class="bar"><i data-w="${(v/max*100).toFixed(1)}" style="background:${c}"></i></span><span class="val">${num(v)}</span></div>`).join('');
-  el('cacheVerdict').textContent = 'Gemini input, output, and cache tokens are parsed from trajectory metadata.';
+    <span class="bar"><i data-w="${v != null ? (v/max*100).toFixed(1) : 0}" style="background:${c}"></i></span><span class="val">${v != null ? num(v) : '—'}</span></div>`).join('');
+  el('cacheVerdict').textContent = 'Gemini tokens are measured successfully.';
   renderDailyHeat(combined ? a.days : DATA.gemini?.daily || []);
   el('heatSub').textContent = `${combined ? 'Combined local activity' : 'Gemini activity'} · last 26 weeks`;
   el('foot').textContent = combined
@@ -1839,13 +1871,29 @@ function renderGeminiCompact(combined = false) {
   const selected = combined ? aggregateCombined() : aggregateGemini();
   const monthStart = dayStart(Date.now()); monthStart.setDate(monthStart.getDate() - 29);
   const monthDay = iso(monthStart);
-  const g30 = (g?.daily || []).filter(d => d.day >= monthDay).reduce((s,d) => s + d.cost, 0);
-  const todayCost = (gToday?.cost || 0);
-  const allCost = (g?.totals?.cost || 0);
-  animate(el('cToday'), todayCost, usd); el('cTodaySub').textContent = 'calendar day';
-  animate(el('cBlock'), selected.tot.cost, usd); el('cBlockSub').textContent = rangeLabel();
-  animate(el('cDay'), g30, usd); el('cDaySub').textContent = 'calendar days';
-  animate(el('cAll'), allCost, usd); el('cAllSub').textContent = 'equivalent API cost';
+  let g30 = null;
+  const monthDays = (g?.daily || []).filter(d => d.day >= monthDay);
+  if (monthDays.some(d => d.cost != null)) {
+    g30 = monthDays.reduce((s,d) => s + (d.cost || 0), 0);
+  }
+  const todayCost = gToday?.cost != null ? gToday.cost : null;
+  const allCost = g?.totals?.cost != null ? g.totals.cost : null;
+
+  if (todayCost != null) animate(el('cToday'), todayCost, usd);
+  else el('cToday').textContent = '—';
+  el('cTodaySub').textContent = 'calendar day';
+
+  if (selected.tot.cost != null) animate(el('cBlock'), selected.tot.cost, usd);
+  else el('cBlock').textContent = '—';
+  el('cBlockSub').textContent = rangeLabel();
+
+  if (g30 != null) animate(el('cDay'), g30, usd);
+  else el('cDay').textContent = '—';
+  el('cDaySub').textContent = 'calendar days';
+
+  if (allCost != null) animate(el('cAll'), allCost, usd);
+  else el('cAll').textContent = '—';
+  el('cAllSub').textContent = 'equivalent API cost';
 
   const modelMix = new Map();
   for (const m of gToday?.models || []) modelMix.set(`Gemini · ${m.name}`, m.input + m.output);
@@ -1931,12 +1979,17 @@ el('providerToggle').addEventListener('click', e => {
 el('refreshBtn').addEventListener('click', async () => {
   const button = el('refreshBtn');
   button.disabled = true; button.textContent = 'Refreshing…';
+  const action = provider === 'claude' ? 'refreshClaude'
+    : provider === 'codex' ? 'refreshCodex'
+      : provider === 'gemini' ? 'refreshGemini' : 'refreshAll';
   if (vscode) {
-    vscode.postMessage(provider === 'gemini' ? 'refreshGemini' : 'refreshCodex');
+    vscode.postMessage(action);
     return;
   }
   try {
-    const url = provider === 'gemini' ? '/api/gemini/refresh' : '/api/codex/refresh';
+    const url = action === 'refreshClaude' ? '/api/claude/refresh'
+      : action === 'refreshCodex' ? '/api/codex/refresh'
+        : action === 'refreshGemini' ? '/api/gemini/refresh' : '/api/refresh';
     const res = await fetch(url, { method:'POST' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     receive(await res.json());

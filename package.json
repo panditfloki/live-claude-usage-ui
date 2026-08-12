@@ -2,7 +2,7 @@
   "name": "claude-usage-meter",
   "displayName": "Mātrā — Claude + Codex + Gemini Usage",
   "description": "Live Claude, Codex, and Gemini usage — plan limits, tokens and equivalent API cost in one local dashboard.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "dydxfx",
   "author": {
     "name": "Pandit Floki",
@@ -76,6 +76,36 @@
           "type": "boolean",
           "default": true,
           "description": "Show the live burn counter in the status bar."
+        },
+        "claudeUsage.statusBar.displayMode": {
+          "type": "string",
+          "enum": ["compact", "full"],
+          "default": "compact",
+          "description": "Compact shows provider percentages only; full also shows abbreviated quota reset times."
+        },
+        "claudeUsage.statusBar.warningThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 80,
+          "description": "Usage percentage that gives the Mātrā meter a warning background."
+        },
+        "claudeUsage.statusBar.errorThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 95,
+          "description": "Usage percentage that gives the Mātrā meter an error background."
+        },
+        "claudeUsage.accounts.claudeAlias": {
+          "type": "string",
+          "default": "",
+          "description": "Optional local label for the active Claude account."
+        },
+        "claudeUsage.accounts.codexAlias": {
+          "type": "string",
+          "default": "",
+          "description": "Optional local label for the active Codex account."
         }
       }
     }
