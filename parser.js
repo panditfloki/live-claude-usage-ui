@@ -9,7 +9,10 @@ const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 // USD per million tokens. Cache-write rates differ by TTL: 1.25x base input for
 // the 5-minute cache, 2x for the 1-hour cache. Claude Code writes 1h entries.
+// Verified against platform.claude.com/docs/en/about-claude/pricing (2026-08-12) —
+// never hand-guessed. Opus 5 matches Opus 4.8's rates exactly.
 const PRICING = {
+  'claude-opus-5':             { in: 5,  out: 25, write5m: 6.25,  write1h: 10, read: 0.50 },
   'claude-opus-4-8':           { in: 5,  out: 25, write5m: 6.25,  write1h: 10, read: 0.50 },
   'claude-opus-4-7':           { in: 5,  out: 25, write5m: 6.25,  write1h: 10, read: 0.50 },
   'claude-opus-4-6':           { in: 5,  out: 25, write5m: 6.25,  write1h: 10, read: 0.50 },
@@ -22,9 +25,25 @@ const PRICING = {
 
 const BLOCK_MS = 5 * 60 * 60 * 1000;
 
+// A model missing from PRICING silently priced at $0 for months once already
+// (claude-opus-5, found 2026-08-12 — Pandit Ji's heaviest model by output
+// tokens was invisible in every cost total). Warn loudly, once per model per
+// process, so the next new model (Opus 6, Sonnet 6, ...) cannot repeat this
+// silently. Returning 0 (not null) is deliberate: null would need null-safe
+// accumulation at every `+=` site this value reaches (byModel, byProject,
+// daily, the block/today aggregates, and the compact event tuple) — a much
+// larger change than this fix warrants. The warning is the real fix; an
+// unpriced model is now loud, not silent.
+const warnedUnpriced = new Set();
 function costOf(model, u) {
   const p = PRICING[model];
-  if (!p) return 0;
+  if (!p) {
+    if (!warnedUnpriced.has(model)) {
+      warnedUnpriced.add(model);
+      console.warn(`[matra] UNPRICED MODEL "${model}" — costing $0 until PRICING is updated`);
+    }
+    return 0;
+  }
   const w1h = u.cacheCreation.ephemeral1h;
   const w5m = u.cacheCreation.ephemeral5m;
   // Fall back to the aggregate when the per-TTL split is absent (older transcripts).
