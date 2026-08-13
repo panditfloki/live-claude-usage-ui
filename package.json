@@ -2,7 +2,7 @@
   "name": "claude-usage-meter",
   "displayName": "Mātrā — Claude + Codex + Gemini Usage",
   "description": "Live Claude, Codex, and Gemini usage — plan limits, tokens and equivalent API cost in one local dashboard.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "publisher": "dydxfx",
   "author": {
     "name": "Pandit Floki",
