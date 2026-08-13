@@ -158,6 +158,9 @@
   /* A tile whose value the API cannot see — hand-declared, and marked as such. */
   .tile.declared { border-style: dashed; }
   .tile.declared em { font-style: normal; color: var(--warn); font-size: 12px; letter-spacing: .04em; }
+  /* Shared "declared, not live" marker — used both in plan-deck chips and in the
+     quota bar note for Gemini's estimated subscription-value figure. */
+  .decl { border-bottom: 1px dotted var(--warn); cursor: help; }
   /* KPI row sits above the fold; give it a touch more presence. */
   .card.kpi .metric { font-size: 31px; }
 
@@ -315,6 +318,42 @@
   }
   .c-quota { display: grid; gap: 14px; }
 
+  /* ── Gauge row ────────────────────────────────────────────────────────────
+     Three half-donuts side by side. Every arc means the SAME thing — how much
+     is LEFT — so a full arc is always good and the three are comparable at a
+     glance. Claude/Codex report "used", so they are inverted on the way in;
+     Gemini already reports remaining. The word "left" stays in the caption so
+     the direction is never inferred from the picture alone. */
+  .c-gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .gauge { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; }
+  .gauge svg { width: 100%; max-width: 108px; display: block; overflow: visible; }
+  .gauge .g-track { fill: none; stroke: var(--line); stroke-width: 9; stroke-linecap: round; }
+  .gauge .g-fill {
+    fill: none; stroke-width: 9; stroke-linecap: round;
+    stroke: var(--haiku);
+    transition: stroke-dashoffset .6s var(--ease), stroke .3s var(--ease);
+  }
+  .gauge[data-tone="tight"] .g-fill { stroke: var(--opus); }
+  .gauge[data-tone="over"]  .g-fill { stroke: var(--warn); }
+  .gauge[data-tone="none"]  .g-fill { stroke: var(--line); }
+  /* The value sits inside the arc's own opening rather than below it — that
+     hollow is otherwise dead space, and it is what makes the row compact. */
+  .gauge .g-val {
+    margin-top: -22px; font-size: 19px; font-weight: 680; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .gauge .g-val i { font-style: normal; font-size: 11px; font-weight: 600; color: var(--dim); margin-left: 1px; }
+  .gauge .g-val.unknown { font-size: 15px; color: var(--dim); }
+  .gauge .g-name { margin-top: 4px; font-size: 12px; font-weight: 600; }
+  .gauge .g-sub { font-size: 11px; color: var(--dim); text-align: center; }
+
+  /* A "remaining" bar fills with what is LEFT, so full = healthy. It uses the
+     same green/amber/red scale as the gauges, and deliberately NOT the accent
+     blue of the "used" bars — two opposite meanings must not share a colour. */
+  .q .track > i.left { background: var(--haiku); }
+  .q .track > i.left.tight { background: var(--opus); }
+  .q .track > i.left.over { background: var(--warn); }
+
   .c-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
   .c-kpi span { display: block; color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
   .c-kpi span i.est { font-style: normal; color: var(--warn); font-size: 12px; letter-spacing: .04em; }
@@ -415,6 +454,11 @@
     <div class="pop" id="planPop"></div>
   </div>
 
+  <div class="viewtoggle" id="currencyToggle" aria-label="Display currency">
+    <button data-c="USD">$</button>
+    <button data-c="INR">₹</button>
+  </div>
+
   <div class="viewtoggle" id="viewToggle">
     <button data-v="compact">Compact</button>
     <button data-v="long">Long</button>
@@ -445,6 +489,10 @@
 <!-- ═══ COMPACT: one screen, no scrolling. Answers exactly one question —
      "am I OK right now, and what is it costing me?" Nothing else earns its pixels. ═══ -->
 <main id="compactView">
+  <!-- One line, three arcs: how much of each provider is LEFT. Replaces three
+       stacked full-width rows, which is most of the compact view's height. -->
+  <section class="c-gauges" id="cGauges"></section>
+
   <section class="c-quota" id="cQuota"></section>
 
   <section class="c-kpis">
@@ -568,7 +616,37 @@
 const vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
 
 const el = id => document.getElementById(id);
-const usd = n => '$' + (n < 100 ? n.toFixed(2) : Math.round(n).toLocaleString());
+
+// ---------------------------------------------------------------------------
+// Money. Every stored figure keeps its OWN currency — Claude and Codex costs are
+// USD because their sources price in USD; the Gemini plan estimate is whatever
+// he declared in plan.json (₹1,950/mo). Conversion happens here, at render time
+// only, so the toggle never rewrites stored data and a fixed monthly price never
+// drifts with the daily rate.
+//
+// If the rate is unavailable, a figure is shown in its own currency rather than
+// converted with a guessed rate — the same refusal that governs everything else
+// in this project: no plausible-looking invented number.
+// ---------------------------------------------------------------------------
+const SYMBOL = { USD: '$', INR: '₹' };
+const fmtAmount = (n, cur) => SYMBOL[cur]
+  + (cur === 'INR'
+      // Rupee figures are ~85× larger, so decimals are noise above ₹100.
+      ? (Math.abs(n) < 100 ? n.toFixed(2) : Math.round(n).toLocaleString('en-IN'))
+      : (Math.abs(n) < 100 ? n.toFixed(2) : Math.round(n).toLocaleString()));
+
+function money(n, sourceCur = 'USD') {
+  if (n == null || !Number.isFinite(n)) return '—';
+  const target = currency;
+  if (sourceCur === target) return fmtAmount(n, target);
+  const rate = DATA?.fx?.available ? DATA.fx.rate : null;
+  if (!rate) return fmtAmount(n, sourceCur);          // no rate → stay honest
+  const converted = sourceCur === 'USD' ? n * rate : n / rate;
+  return fmtAmount(converted, target);
+}
+
+// Existing call sites all pass USD amounts; this keeps them working unchanged.
+const usd = n => money(n, 'USD');
 const num = n => n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M'
                : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(Math.round(n));
 const hourLbl = h => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
@@ -1064,23 +1142,39 @@ function renderQuota(q) {
     ? `as of ${age < 1 ? 'under a minute' : age + 'm'} ago · ${REASON[q.staleReason] || q.staleReason}`
     : 'live';
   const bars = q.limits.map(l => {
-    const p = pace(l);
+    // ⚠️ Gemini/Antigravity limits report what is LEFT, the inverse of Claude's
+    // and Codex's "used" bars (see the DIRECTION note in gemini.js). A full
+    // Gemini bar is a full tank, so it must never turn red, and the pace
+    // projection — which is written entirely in used-terms — does not apply.
+    const isRemaining = l.remaining === true;
+    const usedPct = isRemaining ? 100 - l.percent : l.percent;
+    const p = isRemaining ? null : pace(l);
     // Colour by the PROJECTION, not the current bar — 13% used looks fine, but
     // 13% used with only 14% of the week gone is a different story entirely.
     const tone = !p ? '' : p.projected > 95 ? 'over' : p.projected > 70 ? 'tight' : 'ok';
-    const note = !p
-      ? `<span class="dim">${noPaceReason(l)}</span>`
-      : `${l.percent}% used · ${p.elapsedPct.toFixed(0)}% of ${p.unit} gone · `
-        + (p.capsAt
-            ? `<b class="over">on pace to hit the cap around ${clockAt(p.capsAt)}</b>`
-            : `on pace for <b class="${tone}">${Math.round(p.projected)}%</b> by ${clockAt(l.resetsAt)}`);
+    // estimatedValue only ever appears on remaining-style (Gemini) bars, and only
+    // when geminiPriceUsd is declared in plan.json — a rough linear spread of a
+    // price HE typed, never a measured cost. Kept out of every real-$ total; the
+    // dotted underline is the same "declared, not live" marker the plan deck uses.
+    const est = isRemaining && l.estimatedValue
+      ? ` · <span class="decl" title="Declared estimate, not a bill — ${l.estimatedValue.method}">≈ ${money(l.estimatedValue.remaining, l.estimatedValue.currency)} left (declared est.)</span>`
+      : '';
+    const note = isRemaining
+      ? `<span class="dim">${l.percent}% still available${burnNote(l)}${l.resetsAt ? ` · refills ${clockAt(l.resetsAt)}` : ''}${est}</span>`
+      : !p
+        ? `<span class="dim">${noPaceReason(l)}</span>`
+        : `${l.percent}% used · ${p.elapsedPct.toFixed(0)}% of ${p.unit} gone · `
+          + (p.capsAt
+              ? `<b class="over">on pace to hit the cap around ${clockAt(p.capsAt)}</b>`
+              : `on pace for <b class="${tone}">${Math.round(p.projected)}%</b> by ${clockAt(l.resetsAt)}`);
     return `
-    <div class="q ${l.percent >= 80 ? 'warn' : ''}">
+    <div class="q ${usedPct >= 80 ? 'warn' : ''}">
       <div class="lab">${l.label}
-        <small>${l.resetsAt ? `resets in ${until(l.resetsAt)} · ${clockAt(l.resetsAt)}` : ''}</small>
+        <small>${l.resetsAt ? `${isRemaining ? 'refills' : 'resets'} in ${until(l.resetsAt)} · ${clockAt(l.resetsAt)}` : ''}</small>
       </div>
       <div class="track">
-        <i data-w="${Math.min(100, l.percent)}"></i>
+        <i class="${isRemaining ? `left ${l.percent <= 10 ? 'over' : l.percent <= 30 ? 'tight' : ''}` : ''}"
+           data-w="${Math.min(100, l.percent)}"></i>
         ${p ? `<span class="pace ${tone}" style="left:${Math.min(100, p.projected).toFixed(1)}%"
                  title="Projected ${Math.round(p.projected)}% at reset, at the current burn rate"></span>` : ''}
       </div>
@@ -1088,18 +1182,25 @@ function renderQuota(q) {
       <div class="note">${note}</div>
     </div>`;
   }).join('');
-  el('quota').innerHTML = bars || '<div class="empty">Gemini account limits are not stored locally. Showing equivalent API cost.</div>';
+  el('quota').innerHTML = bars || '<div class="empty">No account limits available — is Antigravity running?</div>';
   // Next frame, so the width transition actually plays.
   requestAnimationFrame(() => {
     el('quota').querySelectorAll('.track > i').forEach(i => { i.style.width = i.dataset.w + '%'; });
   });
-  el('quotaVerdict').textContent = (q.stale
-    ? 'Showing the last successful reading — the endpoint rate-limits aggressively, so this refreshes '
-      + 'every few minutes rather than continuously. The percentages move slowly enough that it does not matter. '
-    : 'Percentages and reset times are real, server-side numbers — the same ones /usage reports. '
-      + 'Not affected by the date range. ')
-    + 'The pace marker (▾) is where you would END UP at the current burn rate — it assumes a constant '
-      + 'rate and your usage is bursty, so treat it as a pace indicator, not a forecast.';
+  // Gemini's bars are remaining-style and carry no pace marker, so the
+  // pace-marker explanation would be describing something that isn't on screen.
+  const allRemaining = q.limits.length && q.limits.every(l => l.remaining === true);
+  el('quotaVerdict').textContent = allRemaining
+    ? 'Percentages are what Antigravity itself reports as REMAINING — the inverse of the Claude and '
+      + 'Codex bars, which show what has been used. A full bar here is a full tank. Read live from '
+      + "Antigravity's own local service, so it matches the number its own panel shows."
+    : (q.stale
+        ? 'Showing the last successful reading — the endpoint rate-limits aggressively, so this refreshes '
+          + 'every few minutes rather than continuously. The percentages move slowly enough that it does not matter. '
+        : 'Percentages and reset times are real, server-side numbers — the same ones /usage reports. '
+          + 'Not affected by the date range. ')
+      + 'The pace marker (▾) is where you would END UP at the current burn rate — it assumes a constant '
+        + 'rate and your usage is bursty, so treat it as a pace indicator, not a forecast.';
 
   if (q.planInfo) renderDeck(q);
   else renderCodexDeck();
@@ -1157,12 +1258,29 @@ function renderCodexDeck(combined = false) {
     ? 'Subscriptions & CLI logs · quota limits stay separate'
     : provider === 'gemini' ? 'Antigravity / Gemini CLI usage' : 'ChatGPT plan · Codex usage only';
   const tiles = [];
-  if (provider === 'gemini' && g?.source) tiles.push(['Source', [g.source.name, g.source.version].filter(Boolean).join(' '), 1]);
-  else if (c?.source?.version) tiles.push(['Source', `ccusage ${c.source.version}`, 1]);
   tiles.push(['Cost basis', 'API equivalent', 1]);
   if (provider === 'codex') tiles.push(['ChatGPT chats', 'Not included', 1]);
-  el('deckTiles').innerHTML = tiles.map(([k,v]) =>
-    `<div class="tile"><span>${k}</span><b>${v}</b></div>`).join('');
+
+  // Gemini's declared plan price, shown the same way Claude's is: a dashed
+  // "declared" tile, because no endpoint exposes what a plan costs. Both the
+  // native currency and its converted twin are shown, so the ₹/$ toggle never
+  // hides which one was actually typed into plan.json.
+  const est = g?.quota?.estimatedSpend;
+  if (provider === 'gemini' && est?.priceDeclared) {
+    const per = est.billingPeriod === 'year' ? '/yr' : '/mo';
+    tiles.push(['Plan cost', money(est.price, est.currency) + per, 0]);
+    const other = est.currency === 'INR' ? 'USD' : 'INR';
+    const rate = DATA?.fx?.available ? DATA.fx.rate : null;
+    if (rate) {
+      const conv = est.currency === 'USD' ? est.price * rate : est.price / rate;
+      tiles.push([`Plan cost (${other})`, fmtAmount(conv, other) + per, 0]);
+    }
+  }
+
+  el('deckTiles').innerHTML = tiles.map(([k, v, live]) =>
+    `<div class="tile${live ? '' : ' declared'}">
+       <span>${k}${live ? '' : ' <em>declared</em>'}</span><b>${v}</b>
+     </div>`).join('');
 }
 
 function renderProviderQuota() {
@@ -1546,13 +1664,38 @@ function drawGemini(combined = false) {
     el('dayVerdict').textContent = 'Equivalent API cost — a burn proxy, not a bill.';
     animate(el('allCost'), allCost, usd);
   } else {
+    // Gemini's MEASURED cost is permanently null (undocumented protobuf — see
+    // gemini.js). Where a declared plan price exists, the pp-burned estimate
+    // fills these slots instead: real usage, declared price, clearly labelled.
+    // It is never mixed into the combined branch above, which sums real costs.
+    const est = DATA.gemini?.quota?.estimatedSpend;
+    const gaps = b => b && b.gapMs > 20 * 60_000 ? ` · ${Math.round(b.gapMs / 3600e3)}h unobserved` : '';
+
     if (todayCost != null) animate(el('blockCost'), todayCost, usd);
+    else if (est?.day) el('blockCost').textContent = '≈ ' + money(est.day.amount, est.day.currency);
     else el('blockCost').textContent = '—';
-    el('blockSub').textContent = 'calendar day · equivalent API cost';
+    el('blockSub').textContent = todayCost != null
+      ? 'calendar day · equivalent API cost'
+      : est?.day
+        ? `estimated plan value · ${est.day.pp} pp burned${gaps(est.day)}`
+        : est?.priceDeclared === false
+          ? 'set geminiPrice in plan.json to estimate'
+          : 'not enough quota samples watched yet';
+
     if (a.tot.cost != null) animate(el('dayCost'), a.tot.cost, usd);
+    else if (est?.week) el('dayCost').textContent = '≈ ' + money(est.week.amount, est.week.currency);
     else el('dayCost').textContent = '—';
-    el('daySub').textContent = `${num((a.tot.input || 0) + (a.tot.output || 0))} input + output tokens`;
-    el('dayVerdict').textContent = 'Equivalent API cost — a burn proxy, not a bill.';
+    el('daySub').textContent = a.tot.cost != null
+      ? `${num((a.tot.input || 0) + (a.tot.output || 0))} input + output tokens`
+      : est?.week
+        ? `estimated plan value · ${est.week.pp} pp burned${gaps(est.week)}`
+        : `${num((a.tot.input || 0) + (a.tot.output || 0))} input + output tokens`;
+    el('dayVerdict').textContent = a.tot.cost != null
+      ? 'Equivalent API cost — a burn proxy, not a bill.'
+      : est?.week
+        ? `Estimated subscription-value: percentage-points burned × declared plan price. Not a Google bill.`
+        : 'Gemini token cost is unmeasurable — Antigravity stores it in an undocumented format.';
+
     if (allCost != null) animate(el('allCost'), allCost, usd);
     else el('allCost').textContent = '—';
   }
@@ -1562,10 +1705,16 @@ function drawGemini(combined = false) {
     : `${DATA.gemini?.sessions?.length || 0} local Gemini sessions`;
   el('allVerdict').textContent = combined
     ? 'Claude, Codex, and Gemini equivalent costs are summed.'
-    : 'Antigravity / Gemini CLI session trajectory logs.';
+    : DATA.gemini?.quota?.estimatedSpend?.priceDeclared
+      // All-time is left blank ON PURPOSE — quota samples are pruned to ~8 days,
+      // so no honest lifetime figure exists. Saying so beats inventing one.
+      ? `Estimates cover roughly the last ${DATA.gemini.quota.estimatedSpend.historyDays} days — quota samples are pruned, so there is no honest all-time figure.`
+      : 'Antigravity / Gemini CLI session trajectory logs.';
 
+  const estT = DATA.gemini?.quota?.estimatedSpend;
   el('tiles').innerHTML = [
-    ['Equivalent cost', a.tot.cost != null ? usd(a.tot.cost) : '—'],
+    ['Equivalent cost', a.tot.cost != null ? usd(a.tot.cost)
+      : (!combined && estT?.week ? `≈ ${money(estT.week.amount, estT.week.currency)}` : '—')],
     ['Input', a.tot.input != null ? num(a.tot.input) : '—'], ['Output', a.tot.output != null ? num(a.tot.output) : '—'],
     ['Cache read', a.tot.cacheRead != null ? num(a.tot.cacheRead) : '—'],
     ['Active days', a.activeDays], ['Sessions', a.sessions],
@@ -1760,9 +1909,38 @@ function renderClaudeCompact() {
   el('cFoot').textContent = 'updated ' + new Date(DATA.generatedAt).toLocaleTimeString();
 }
 
+// Percentage points burned, with its own honesty attached. Mātrā only sees the
+// quota while it is running, so an unobserved stretch is stated, never quietly
+// treated as zero burn. There is no dollar figure here on purpose — Antigravity
+// exposes a level, not tokens and not money.
+function burnNote(limit) {
+  const burned = DATA?.gemini?.quota?.burned;
+  if (!burned) return '';
+  const b = limit.group === 'weekly' ? burned.week : burned.session5h;
+  if (!b || b.pp == null) return '';
+  const gapH = b.gapMs / 3600e3;
+  const gap = gapH >= 0.5 ? ` · ${gapH < 1 ? Math.round(gapH * 60) + 'm' : gapH.toFixed(1) + 'h'} unobserved` : '';
+  const resets = b.resets ? ` · ${b.resets} reset${b.resets > 1 ? 's' : ''}` : '';
+  return ` · <b>${b.pp}pp</b> burned${gap}${resets}`;
+}
+
 function compactQuota(qs) {
   const limits = qs.flatMap(q => q?.limits || []);
   el('cQuota').innerHTML = limits.length ? limits.map(l => {
+    // ⚠️ A `remaining` limit (Gemini) is the INVERSE of a used one. Running the
+    // "used" path over it painted 82% LEFT as a red 82%-burnt alarm with an
+    // "on pace to hit the cap" warning — the tool shouting danger at a healthy
+    // tank. Remaining limits get no pace projection either: pace extrapolates
+    // burn, and Antigravity gives a level, not a burn rate.
+    if (l.remaining) {
+      const left = Math.max(0, Math.min(100, l.percent));
+      const tone = left <= 10 ? 'over' : left <= 30 ? 'tight' : 'ok';
+      return `<div class="q ${left <= 20 ? 'warn' : ''}"><div class="lab">${l.label}
+        <small>${l.resetsAt ? `resets in ${until(l.resetsAt)} · ${clockAt(l.resetsAt)}` : ''}</small></div>
+        <div class="track"><i class="left ${tone}" data-w="${left}"></i></div>
+        <div class="pct">${l.percent}%</div>
+        <div class="note"><span class="dim">${left}% still available${burnNote(l)}</span></div></div>`;
+    }
     const p = pace(l), tone = !p ? '' : p.projected > 95 ? 'over' : p.projected > 70 ? 'tight' : 'ok';
     const note = !p ? `<span class="dim">${noPaceReason(l)}</span>`
       : p.capsAt ? `<b class="over">on pace to hit the cap around ${clockAt(p.capsAt)}</b>`
@@ -1912,7 +2090,73 @@ function renderGeminiCompact(combined = false) {
   el('cFoot').textContent = 'Gemini via Antigravity CLI';
 }
 
+// ── Gauge row ───────────────────────────────────────────────────────────────
+// Semicircle of radius 40 → path length π·40. Used for stroke-dasharray so the
+// fill can be driven by a single dashoffset.
+const ARC = Math.PI * 40;
+const ARC_PATH = 'M8 48 A 40 40 0 0 1 88 48';
+
+// Every gauge shows REMAINING. Claude and Codex publish "used", so they are
+// inverted here; Gemini publishes remaining already and carries remaining:true.
+// Getting this backwards would paint an exhausted quota as a full green arc,
+// which is exactly the class of silent lie D3 exists to prevent.
+function leftPercent(limit) {
+  if (!limit || typeof limit.percent !== 'number') return null;
+  const left = limit.remaining ? limit.percent : 100 - limit.percent;
+  return Math.max(0, Math.min(100, Math.round(left)));
+}
+
+function gaugeCard(name, limit) {
+  const left = leftPercent(limit);
+  const tone = left == null ? 'none' : left <= 10 ? 'over' : left <= 30 ? 'tight' : 'ok';
+  const offset = left == null ? ARC : ARC * (1 - left / 100);
+  const sub = left == null
+    ? 'no reading'
+    : (limit.resetsAt ? `${until(limit.resetsAt)} left` : 'no reset time');
+  const val = left == null
+    ? '<b class="g-val unknown">—</b>'
+    : `<b class="g-val">${left}<i>%</i></b>`;
+  // Say what the provider itself reported, so a normalised number never comes
+  // as a surprise against that provider's own UI. Claude showing 17% in its
+  // /usage and 83% here is the same fact stated from the other end.
+  const native = !limit ? 'no quota reading'
+    : limit.remaining
+      ? `${limit.label} — reported as ${limit.percent}% remaining`
+      : `${limit.label} — reported as ${limit.percent}% used`;
+  return `
+    <div class="gauge" data-tone="${tone}" title="${left == null ? name + ' — ' + native : `${left}% left · ${native}`}">
+      <svg viewBox="0 0 96 56" aria-hidden="true">
+        <path class="g-track" d="${ARC_PATH}"/>
+        <path class="g-fill" d="${ARC_PATH}"
+              style="stroke-dasharray:${ARC.toFixed(2)};stroke-dashoffset:${ARC.toFixed(2)}"
+              data-off="${offset.toFixed(2)}"/>
+      </svg>
+      ${val}
+      <span class="g-name">${name}</span>
+      <span class="g-sub">${sub}</span>
+    </div>`;
+}
+
+function renderGauges() {
+  const claudeSession = (DATA?.quota?.limits || []).find(l => l.kind === 'session') || null;
+  const codexLimits = DATA?.codex?.quota?.limits || [];
+  const codexPrimary = codexLimits.find(l => l.kind === 'primary') || codexLimits[0] || null;
+  const geminiLimits = DATA?.gemini?.quota?.limits || [];
+  const geminiSession = geminiLimits.find(l => l.group === 'session') || geminiLimits[0] || null;
+
+  el('cGauges').innerHTML =
+      gaugeCard('Claude', claudeSession)
+    + gaugeCard('Codex', codexPrimary)
+    + gaugeCard('Gemini', geminiSession);
+
+  // Animate from empty on every paint, same count-up feel as the bars.
+  requestAnimationFrame(() => {
+    el('cGauges').querySelectorAll('.g-fill').forEach(p => { p.style.strokeDashoffset = p.dataset.off; });
+  });
+}
+
 function renderCompact() {
+  renderGauges();
   if (provider === 'claude') renderClaudeCompact();
   else if (provider === 'codex') renderCodexCompact(false);
   else if (provider === 'gemini') renderGeminiCompact(false);
@@ -1947,18 +2191,47 @@ const providerStore = {
     } catch {}
   },
 };
+const currencyStore = {
+  get: () => {
+    try {
+      if (vscode) return (vscode.getState() || {}).currency;
+      return localStorage.getItem('matra.currency');
+    } catch { return null; }
+  },
+  set: value => {
+    try {
+      if (vscode) vscode.setState({ ...(vscode.getState() || {}), currency:value });
+      else localStorage.setItem('matra.currency', value);
+    } catch {}
+  },
+};
 let view = store.get() || (vscode ? 'compact' : 'long');
 let provider = providerStore.get() || 'claude';
+let currency = currencyStore.get() || 'USD';
 
 function applyView() {
   document.body.classList.toggle('compact', view === 'compact');
   document.body.classList.toggle('long', view === 'long');
   el('viewToggle').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
   el('providerToggle').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.p === provider));
+  el('currencyToggle').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === currency));
+  // Say WHICH rate is in play and how old it is — a converted figure that hides
+  // its rate is the same lie as an unlabelled estimate.
+  const fxBtn = el('currencyToggle').querySelector('[data-c="INR"]');
+  if (fxBtn) {
+    const f = DATA?.fx;
+    fxBtn.title = !f?.available
+      ? `Rupee conversion unavailable — ${f?.staleReason || 'no rate yet'}. Figures stay in their own currency.`
+      : `1 USD = ₹${f.rate.toFixed(2)}`
+        + (f.markupPercent ? ` (mid-market ₹${f.midMarketRate.toFixed(2)} + ${f.markupPercent}% card markup)` : ' (mid-market)')
+        + (f.stale ? ` · stale: ${f.staleReason}` : '')
+        + ` · ${f.provider}`;
+  }
   const who = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : provider === 'gemini' ? 'Gemini' : 'Claude + Codex + Gemini';
   el('viewTag').textContent = `${who} usage · ${view === 'compact' ? 'compact' : 'long view'}`;
   store.set(view);
   providerStore.set(provider);
+  currencyStore.set(currency);
   if (DATA) view === 'compact' ? renderCompact() : draw();
 }
 
@@ -1973,6 +2246,13 @@ el('providerToggle').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   provider = b.dataset.p;
+  applyView();
+});
+
+el('currencyToggle').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  currency = b.dataset.c;
   applyView();
 });
 

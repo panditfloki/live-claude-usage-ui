@@ -8,6 +8,7 @@ const { snapshot, PROJECTS_DIR } = require('./parser');
 const claude = require('./quota');
 const codex = require('./codex');
 const gemini = require('./gemini');
+const fx = require('./fx');
 const { watchCacheChanges } = require('./refresh-sync');
 
 const PORT = Number(process.env.PORT || 4317);
@@ -27,6 +28,10 @@ async function payload({ forceClaude = false, forceCodex = false, forceGemini = 
   data.quota = q;
   data.codex = codex.read();
   data.gemini = gemini.read();
+  // Display-only. Every stored figure stays in its source currency; this rate is
+  // what lets the header's ₹/$ toggle convert at render time. Never awaited on
+  // the critical path — a missing rate just means the toggle falls back to USD.
+  data.fx = fx.read(gemini.planConfig().forexMarkupPercent);
   return data;
 }
 
@@ -75,6 +80,12 @@ setInterval(() => codex.refresh().then(push).catch(() => {}), codex.TTL_MS).unre
 
 gemini.refresh().then(push).catch(() => {});
 setInterval(() => gemini.refresh().then(push).catch(() => {}), gemini.TTL_MS).unref?.();
+
+// The FX rate is published once a day upstream, so this is a slow heartbeat, not
+// a poll. Failures are swallowed: the last good rate keeps serving, and if there
+// has never been one the dashboard simply stays in dollars.
+fx.refresh().then(push).catch(() => {});
+setInterval(() => fx.refresh().then(push).catch(() => {}), fx.TTL_MS).unref?.();
 
 resilientWatch(codex.CODEX_DIR, file => file.endsWith('.jsonl'), () => {
     clearTimeout(codexPending);

@@ -6,6 +6,7 @@ const { snapshot, PROJECTS_DIR } = require('./parser');
 const claude = require('./quota');
 const codex = require('./codex');
 const gemini = require('./gemini');
+const fx = require('./fx');
 const { statusSummary } = require('./statusbar');
 const { watchCacheChanges } = require('./refresh-sync');
 
@@ -87,6 +88,9 @@ async function render({ forceClaude = false, forceCodex = false, forceGemini = f
 
   data.codex = codex.read();
   data.gemini = gemini.read();
+  // Display-only rate for the webview's ₹/$ toggle. Refreshed on its own slow
+  // heartbeat below, never awaited here — the panel must render without it.
+  data.fx = fx.read(gemini.planConfig().forexMarkupPercent);
 
   const cfg = vscode.workspace.getConfiguration('claudeUsage');
   if (cfg.get('statusBar.show', true)) status.show(); else status.hide();
@@ -97,6 +101,7 @@ async function render({ forceClaude = false, forceCodex = false, forceGemini = f
     displayMode: cfg.get('statusBar.displayMode', 'compact'),
     warningThreshold: cfg.get('statusBar.warningThreshold', 80),
     errorThreshold: cfg.get('statusBar.errorThreshold', 95),
+    bars: cfg.get('statusBar.bars', true),
   });
   status.text = `${summary.warn ? '$(flame)' : '$(pulse)'} ${summary.label}`;
   status.backgroundColor = summary.severity === 'error'
@@ -157,9 +162,14 @@ async function render({ forceClaude = false, forceCodex = false, forceGemini = f
   if (g?.quota) {
     if (g.quota.plan) md.appendMarkdown(`Plan — **${g.quota.plan}**\n\n`);
     for (const l of g.quota.limits || []) {
+      // estimatedValue only appears when geminiPriceUsd is declared in plan.json —
+      // a linear spread of a price he typed, never a measured cost. "declared est."
+      // matches the same wording the dashboard uses for this figure.
+      const v = l.estimatedValue;
+      const est = v ? ` · ≈ ${v.currency === 'INR' ? '₹' : '$'}${v.remaining.toFixed(2)} left (declared est.)` : '';
       md.appendMarkdown(
         `\`${meter(l.percent)}\` **${l.percent}%** — ${l.label}` +
-        (l.resetsAt ? ` · resets in ${until(l.resetsAt)}` : '') + '\n\n'
+        (l.resetsAt ? ` · resets in ${until(l.resetsAt)}` : '') + est + '\n\n'
       );
     }
   } else {
@@ -226,6 +236,10 @@ function activate(context) {
   render();
   codex.refresh().then(() => render()).catch(() => {});
   gemini.refresh().then(() => render()).catch(() => {});
+  // Upstream publishes the rate once a day, so this is a heartbeat, not a poll.
+  fx.refresh().then(() => render()).catch(() => {});
+  const fxPoll = setInterval(() => fx.refresh().then(() => render()).catch(() => {}), fx.TTL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(fxPoll) });
 
   try {
     watcher = fs.watch(PROJECTS_DIR, { recursive: true }, (_e, file) => {

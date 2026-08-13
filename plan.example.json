@@ -24,11 +24,24 @@
     "billingPeriod — 'month' or 'year'.",
     "renewsOn      — subscription renewal date, YYYY-MM-DD.",
     "creditBalance — billing credit balance in USD.",
-    "spentToDate   — lifetime spend, if you want it on the deck."
+    "spentToDate   — lifetime spend, if you want it on the deck.",
+    "",
+    "geminiPrice / geminiPriceCurrency — what your Gemini/Antigravity plan costs, in the",
+    "  currency it is billed in (e.g. 1950 + 'INR', or 20 + 'USD'). Optional. If set, Gemini's",
+    "  cost slots show an ESTIMATED subscription-value figure: percentage-points of quota",
+    "  actually burned × the plan price per point. It is an approximation, not a bill — Gemini's",
+    "  real token cost stays unmeasurable and null, always. Leave null to skip the estimate.",
+    "geminiBillingPeriod — 'month' or 'year'. Defaults to 'month'.",
+    "forexMarkupPercent — spread your card adds over the mid-market rate on foreign-currency",
+    "  charges. Used for USD→INR display only. 0 to use the raw mid-market rate."
   ],
   "priceUsd": null,
   "billingPeriod": "month",
   "renewsOn": null,
   "creditBalance": null,
-  "spentToDate": null
+  "spentToDate": null,
+  "geminiPrice": null,
+  "geminiPriceCurrency": "USD",
+  "geminiBillingPeriod": "month",
+  "forexMarkupPercent": 0
 }
