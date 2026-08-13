@@ -221,6 +221,11 @@ function scanConversations() {
   try { files = fs.readdirSync(CONVERSATIONS_DIR).filter(f => f.endsWith('.db')); } catch { return []; }
 
   const sessions = [];
+  // Every read below shells out to sqlite3. If that binary is missing — routine
+  // on Windows, where this has never been tested — each read throws, every
+  // conversation is skipped, and the dashboard reports zero Gemini sessions:
+  // "you used nothing" instead of "I could not read it". Distinguish the two.
+  let sqliteFailures = 0;
 
   for (const f of files) {
     const fullPath = path.join(CONVERSATIONS_DIR, f);
@@ -232,7 +237,10 @@ function scanConversations() {
     try {
       const raw = execFileSync('sqlite3', [fullPath, 'SELECT hex(data) FROM gen_metadata;'], { encoding: 'utf8', timeout: TIMEOUT_MS });
       rows = raw.trim().split('\n').filter(Boolean);
-    } catch { }
+    } catch (err) {
+      // ENOENT is "no sqlite3 on this machine"; anything else is one bad file.
+      if (err && (err.code === 'ENOENT' || /ENOENT|not found|not recognized/i.test(String(err.message)))) sqliteFailures++;
+    }
 
     if (!rows.length) continue;
 
@@ -279,6 +287,15 @@ function scanConversations() {
     });
   }
 
+  // Files present, none readable, and sqlite3 is the reason: that is a broken
+  // install, not an idle account. Fail loudly rather than reporting an
+  // authoritative zero.
+  if (!sessions.length && sqliteFailures === files.length && files.length) {
+    const err = new Error('sqlite3 not found — Gemini token/cost needs it on PATH (untested on Windows)');
+    err.code = 'ENOSQLITE';
+    throw err;
+  }
+
   return sessions.sort((a, b) => b.ts - a.ts);
 }
 
@@ -302,7 +319,17 @@ function scanConversations() {
 //      Antigravity's local listener has been observed on either.
 const CSRF_RE = /--csrf_token[=\s]+"([^"]+)"|--csrf_token[=\s]+'([^']+)'|--csrf_token[=\s]+([^\s"']+)/i;
 
+// `ps -eo` and `lsof` are Unix-only, and there is no platform guard further
+// down: on Windows both simply throw, discovery returns nothing, and the user
+// is told "is Antigravity running?" — a confident, wrong diagnosis of a machine
+// where this was never going to work. Same failure shape as the unpriced-model
+// $0 and the bare-PATH launchd exit 127: silence that reads as a real answer.
+// Say the true reason instead. (Windows support would need `tasklist /v` +
+// `netstat -ano`; nobody has written or tested that.)
+const RPC_SUPPORTED = process.platform === 'darwin' || process.platform === 'linux';
+
 function findLanguageServerProcess() {
+  if (!RPC_SUPPORTED) return null;
   let out;
   try { out = execFileSync('ps', ['-eo', 'pid,args'], { encoding: 'utf8', timeout: 5_000 }); }
   catch { return null; }
@@ -409,6 +436,9 @@ const RETRIEVE_USER_QUOTA_SUMMARY = '/exa.language_server_pb.LanguageServerServi
 // them SEQUENTIALLY is the difference between ~200ms and several minutes, so
 // every candidate is raced in parallel and the first success wins.
 async function callAntigravityRpc(method) {
+  if (!RPC_SUPPORTED) {
+    throw new Error(`Gemini quota needs ps/lsof — not supported on ${process.platform} (untested; macOS and Linux only)`);
+  }
   const proc = findLanguageServerProcess();
   if (!proc) throw new Error('Antigravity language_server process not found (is Antigravity running?)');
   const ports = listeningPorts(proc.pid);
@@ -851,9 +881,11 @@ async function refresh({ force = false } = {}) {
       const sess = scanConversations();
       writeCache({ version: CACHE_VERSION, at: Date.now(), data: { sessions: sess }, error: null });
     } catch (err) {
+      // Keep the real reason. A blanket "Gemini scan failed" turns "sqlite3 is
+      // not installed" into an unactionable shrug the user cannot fix.
       writeCache({
         ...(cache || {}),
-        error: 'Gemini scan failed',
+        error: err && err.message ? err.message : 'Gemini scan failed',
       });
     } finally {
       refreshing = null;
