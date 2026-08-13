@@ -1,7 +1,14 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalise, costOf, parseGenMetadataBuf, present, isConversationFile, TTL_MS, CACHE_VERSION } = require('../gemini');
+const fs = require('node:fs');
+const path = require('node:path');
+const {
+  normalise, costOf, parseGenMetadataBuf, present, isConversationFile, TTL_MS, CACHE_VERSION,
+  quotaShapeFromResponse, remainingPercent, resetMs,
+  consumption, QUOTA_HISTORY_FILE,
+  estimatedValueFor, estimatedSpendFrom, probeIsRpc, rpcCall,
+} = require('../gemini');
 
 test('gemini model pricing and cost calculations', () => {
   const c1 = costOf('gemini-3.6-flash', 1000000, 1000000, 1000000);
@@ -19,6 +26,64 @@ test('uses the concrete Antigravity display model instead of its placeholder id'
   assert.equal(parseGenMetadataBuf(buf).model, 'gemini-3.5-flash-medium');
 });
 
+const INR = { geminiPrice: 1950, geminiPriceCurrency: 'INR' };
+
+test('estimatedValueFor spreads a declared price linearly across a quota window', () => {
+  // 5-hour session window, ₹1950/mo, 70% remaining — matches the worked example
+  // Pandit Ji brought from Perplexity: value/window ≈ 13.54, remaining ≈ 9.48, used ≈ 4.06.
+  const v = estimatedValueFor({ percent: 70, windowMs: 5 * 3600e3 }, INR);
+  assert.equal(v.window, 13.54);
+  assert.equal(v.remaining, 9.48);
+  assert.equal(v.used, 4.06);
+  assert.equal(v.currency, 'INR');
+  assert.equal(v.label, 'Estimated subscription-value equivalent');
+
+  // Weekly window, same price, 70% remaining.
+  const w = estimatedValueFor({ percent: 70, windowMs: 7 * 24 * 3600e3 }, INR);
+  assert.equal(w.window, 455); // 1950 / (30*24/168)
+  assert.equal(Math.round((w.remaining + w.used) * 100) / 100, w.window);
+});
+
+test('estimatedValueFor stays null with no declared price, no percent, or no window', () => {
+  assert.equal(estimatedValueFor({ percent: 70, windowMs: 18e6 }, { geminiPrice: null }), null);
+  assert.equal(estimatedValueFor({ percent: null, windowMs: 18e6 }, INR), null);
+  assert.equal(estimatedValueFor({ percent: 70, windowMs: null }, INR), null);
+});
+
+test('estimatedSpendFrom prices what was actually burned, in the declared currency', () => {
+  // A full 5-hour window burned end to end is exactly one window's worth of plan value.
+  const full = estimatedSpendFrom({ pp: 100, samples: 30, gapMs: 0, resets: 0 }, 5 * 3600e3, INR);
+  assert.equal(full.amount, 13.54);
+  assert.equal(full.currency, 'INR');
+
+  // Half of it, half the value.
+  const half = estimatedSpendFrom({ pp: 50, samples: 30, gapMs: 0, resets: 0 }, 5 * 3600e3, INR);
+  assert.equal(half.amount, 6.77);
+
+  // Observation gaps ride along untouched so the UI can disclose them.
+  assert.equal(estimatedSpendFrom({ pp: 20, samples: 4, gapMs: 7.2e6, resets: 1 }, 5 * 3600e3, INR).gapMs, 7.2e6);
+});
+
+test('estimatedSpendFrom refuses to invent a figure with no price or no samples', () => {
+  assert.equal(estimatedSpendFrom({ pp: 50, samples: 30, observedMs: 18e6, gapMs: 0 }, 18e6, { geminiPrice: null }), null);
+  // pp === null means "too few samples to say", which must never become a confident zero.
+  assert.equal(estimatedSpendFrom({ pp: null, samples: 1, observedMs: 0, gapMs: 0 }, 18e6, INR), null);
+  assert.equal(estimatedSpendFrom(null, 18e6, INR), null);
+});
+
+test('a barely-observed window yields no figure rather than a confident zero', () => {
+  const w = 5 * 3600e3;
+  // Two samples five minutes apart: "nothing was watching", not "nothing was spent".
+  assert.equal(estimatedSpendFrom({ pp: 0, samples: 2, observedMs: 3e5, gapMs: w }, w, INR), null);
+  // Enough samples but almost no coverage — still not publishable.
+  assert.equal(estimatedSpendFrom({ pp: 0, samples: 9, observedMs: 6e5, gapMs: w }, w, INR), null);
+  // Well-observed and genuinely idle: a real, publishable zero.
+  const idle = estimatedSpendFrom({ pp: 0, samples: 40, observedMs: w * 0.9, gapMs: 0 }, w, INR);
+  assert.equal(idle.amount, 0);
+  // Observed burn is always publishable — it was, by definition, seen happening.
+  assert.equal(estimatedSpendFrom({ pp: 25, samples: 2, observedMs: 6e5, gapMs: w }, w, INR).amount, 3.39);
+});
+
 test('active SQLite WAL writes trigger near-live refreshes', () => {
   assert.equal(isConversationFile('conversation.db'), true);
   assert.equal(isConversationFile('conversation.db-wal'), true);
@@ -33,6 +98,71 @@ test('real metadata exposes its model but unverified protobuf quantities stay un
 
   assert.strictEqual(meta.model, 'gemini-3.6-flash');
   assert.strictEqual(meta.timestamp, 0);
+
+  // Real token counts, read from the documented path (1 → 4 → leaves) after the
+  // schema was recovered from Antigravity's own language_server binary.
+  // ⚠️ This is the very blob that broke the previous two attempts: 1,085 bytes,
+  // which round 1 read as input:1071 (actually ModelUsageStats.model, an enum)
+  // and round 3 read as input:37,892 (actually a unix timestamp). Both are now
+  // regression-locked below.
+  assert.strictEqual(meta.input, 17436);
+  assert.strictEqual(meta.output, 388);
+  assert.strictEqual(meta.cache, 8155);
+  assert.notStrictEqual(meta.input, 1071);    // round-1 fabrication
+  assert.notStrictEqual(meta.input, 37892);   // round-3 fabrication
+
+  // The invariant that proves these are the real fields and not a lucky offset:
+  // output is exactly thinking + response on every blob Antigravity writes.
+  assert.strictEqual(meta.output, meta.thinking + 71);
+});
+
+test('absent token fields mean zero, not unknown — protobuf omits defaults', () => {
+  // A usage message with input only. cache_read/output are simply not on the
+  // wire because they were zero; reading them as null made costOf() return null
+  // and silently dropped the turn's real spend from every total.
+  //  field 1 (chat_model) { field 4 (usage) { field 2 (input) = 300 } }
+  const usage = Buffer.from([0x10, 0xac, 0x02]);              // 2:varint = 300
+  const chatModel = Buffer.concat([Buffer.from([0x22, usage.length]), usage]);   // 4:len
+  const blob = Buffer.concat([Buffer.from([0x0a, chatModel.length]), chatModel]); // 1:len
+  const meta = parseGenMetadataBuf(blob);
+  assert.strictEqual(meta.input, 300);
+  assert.strictEqual(meta.output, 0);
+  assert.strictEqual(meta.cache, 0);
+});
+
+test('the CSRF token is never sent to a port that is not Connect-RPC', async () => {
+  // Antigravity forwards user ports through the language_server pid, so the
+  // candidate list really does include Mātrā (:4317) and Lekhā (:4318) on this
+  // machine. Both answer HTTP 200 with text/html to the RPC path — measured,
+  // not assumed. Before the 2026-08-13 fix the token was POSTed to every one of
+  // them and only JSON.parse() throwing on HTML kept it from being used.
+  const http = require('node:http');
+  let sawToken = false;
+  const srv = http.createServer((req, res) => {
+    if (req.headers['x-codeium-csrf-token']) sawToken = true;
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end('<html>a dashboard, not an RPC server</html>');
+  });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  const method = '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary';
+
+  await assert.rejects(
+    () => probeIsRpc('http', port, method),
+    /not a Connect-RPC endpoint/,
+    'an HTML responder must never be accepted as the RPC endpoint',
+  );
+  assert.equal(sawToken, false, 'probe must carry no credential at all');
+
+  // And the authenticated call refuses the same host, so a regression in the
+  // probe cannot quietly re-open the leak downstream.
+  await assert.rejects(() => rpcCall('http', port, 'secret-token', method), /not a Connect-RPC endpoint/);
+
+  await new Promise(r => srv.close(r));
+});
+
+test('a blob with no usage message stays unknown rather than becoming zero', () => {
+  const meta = parseGenMetadataBuf(Buffer.from('no protobuf here at all', 'utf8'));
   assert.strictEqual(meta.input, null);
   assert.strictEqual(meta.output, null);
   assert.strictEqual(meta.cache, null);
@@ -67,7 +197,10 @@ test('normalises gemini sessions and daily burn aggregations', () => {
   assert.equal(norm.totals.cost, null);
   assert.equal(norm.totals.tokens, null);
   assert.equal(norm.totals.turns, 5);
-  assert.equal(norm.quota, null, 'must not invent an Antigravity account quota');
+  // Quota moved out of normalise() in v1.4.2 — it is real, live data from
+  // Antigravity's own RPC, attached by present(), so normalise() stays a pure
+  // function of session data.
+  assert.equal('quota' in norm, false, 'normalise must not fabricate a quota field');
   assert.deepEqual(norm.daily[0].models, sessions[0].models);
 });
 
@@ -83,16 +216,162 @@ test('presents cached data with soft failure handling', () => {
     error: null,
   };
 
-  const pres = present(cache);
+  // quota is now an explicit argument — present() attaches whatever the live
+  // RPC layer supplied, and null when it supplied nothing.
+  const pres = present(cache, null);
   assert.equal(pres.available, true);
   assert.equal(pres.stale, false);
   assert.equal(pres.totals.cost, 0.5);
   assert.equal(pres.source.name, 'Antigravity CLI');
   assert.equal(pres.quota, null);
+
+  const withQuota = present(cache, { plan: null, limits: [{ kind: 'gemini', percent: 70, remaining: true }] });
+  assert.equal(withQuota.quota.limits[0].percent, 70);
 });
 
 test('rejects old caches so guessed Gemini costs cannot leak into v1.4.0', () => {
   const pres = present({ at: Date.now(), data: { sessions: [] } });
   assert.equal(pres.available, false);
   assert.match(pres.staleReason, /requires refresh/);
+});
+
+// ── Live account quota (RetrieveUserQuotaSummary over Antigravity's own RPC) ──
+// Fixture mirrors the real response shape observed on this machine 2026-08-13,
+// cross-checked against what the AG Usage extension displayed at the same
+// moment: Gemini 70% / 82%, Other 100% / 100%.
+const QUOTA_FIXTURE = {
+  response: {
+    groups: [
+      {
+        displayName: 'Gemini',
+        buckets: [
+          { displayName: 'Five Hour Limit Remaining', remainingFraction: 0.7, resetTime: 1786573083000 },
+          { displayName: 'Weekly Limit Remaining', remainingFraction: 0.82, resetTime: 1786635118000 },
+        ],
+      },
+      {
+        displayName: 'Other',
+        buckets: [
+          { displayName: 'Five Hour Limit Remaining', remainingFraction: 1, resetTime: 1786578985000 },
+          { displayName: 'Weekly Limit Remaining', remainingFraction: 1, resetTime: 1787166385000 },
+        ],
+      },
+    ],
+  },
+};
+
+test('quota percentages are REMAINING and match what Antigravity itself shows', () => {
+  const q = quotaShapeFromResponse(QUOTA_FIXTURE);
+  const byLabel = Object.fromEntries(q.limits.map(l => [l.label, l.percent]));
+  assert.equal(byLabel['Gemini · 5-hour left'], 70);
+  assert.equal(byLabel['Gemini · weekly left'], 82);
+});
+
+// Rewritten 2026-08-13: the "other" leg used to be asserted here. It is now
+// dropped on purpose — he never routes Claude or GPT through Antigravity, so
+// it reads a permanent 100% and sits misleadingly next to Mātrā's real
+// Claude/Codex bars. Keep this test: it is what stops the leg coming back.
+test('the always-100% "other" leg is dropped, not surfaced', () => {
+  const q = quotaShapeFromResponse(QUOTA_FIXTURE);
+  assert.equal(q.limits.length, 2, 'only the two Gemini windows survive');
+  for (const l of q.limits) {
+    assert.equal(l.kind, 'gemini');
+    assert.doesNotMatch(l.label, /other/i, 'no "other" leg may reach the UI');
+  }
+});
+
+test('every Gemini limit is flagged remaining, so nothing reads it as "used"', () => {
+  const q = quotaShapeFromResponse(QUOTA_FIXTURE);
+  assert.ok(q.limits.length > 0);
+  for (const l of q.limits) {
+    assert.equal(l.remaining, true, `${l.label} must be flagged remaining`);
+    assert.match(l.label, /left$/, 'the direction must be visible in the label itself');
+  }
+});
+
+test('both windows survive per leg, and window lengths are derived', () => {
+  const q = quotaShapeFromResponse(QUOTA_FIXTURE);
+  const gemini = q.limits.filter(l => l.kind === 'gemini');
+  assert.equal(gemini.length, 2, 'the 5-hour window must not swallow the weekly one');
+  assert.equal(gemini.find(l => l.group === 'session').windowMs, 5 * 3600e3);
+  assert.equal(gemini.find(l => l.group === 'weekly').windowMs, 7 * 24 * 3600e3);
+});
+
+test('a full tank is 100% remaining, an empty one is 0 — never inverted', () => {
+  assert.equal(remainingPercent(1), 100);
+  assert.equal(remainingPercent(0), 0);
+  assert.equal(remainingPercent(0.7), 70);
+  assert.equal(remainingPercent('nonsense'), null);
+  assert.equal(remainingPercent(undefined), null);
+});
+
+test('reset times accept both epoch millis and ISO strings', () => {
+  assert.equal(resetMs(1786573083000), 1786573083000);
+  assert.equal(resetMs('2026-08-13T03:48:03.000Z'), Date.parse('2026-08-13T03:48:03.000Z'));
+  assert.equal(resetMs(null), null);
+  assert.equal(resetMs('not a date'), null);
+});
+
+test('an empty or malformed quota response yields null, not a fake zero bar', () => {
+  assert.equal(quotaShapeFromResponse({}), null);
+  assert.equal(quotaShapeFromResponse({ response: { groups: [] } }), null);
+  assert.equal(quotaShapeFromResponse({ response: { groups: [{ displayName: 'Gemini', buckets: [] }] } }), null);
+});
+
+// ── Percentage-point consumption ────────────────────────────────────────────
+// The only "amount" Gemini can honestly produce. Antigravity exposes a quota
+// LEVEL, not tokens and not money, so consumption is derived by differencing
+// polled levels — which makes the failure modes below the whole contract.
+function withHistory(samples, fn) {
+  const backup = fs.existsSync(QUOTA_HISTORY_FILE) ? fs.readFileSync(QUOTA_HISTORY_FILE) : null;
+  fs.mkdirSync(path.dirname(QUOTA_HISTORY_FILE), { recursive: true });
+  fs.writeFileSync(QUOTA_HISTORY_FILE, JSON.stringify({ samples }));
+  try { return fn(); }
+  finally {
+    if (backup) fs.writeFileSync(QUOTA_HISTORY_FILE, backup);
+    else try { fs.unlinkSync(QUOTA_HISTORY_FILE); } catch {}
+  }
+}
+
+test('burn is the sum of drops in remaining, in percentage points', () => {
+  const now = Date.now();
+  withHistory([
+    { at: now - 15 * 60_000, session: 70 },
+    { at: now - 10 * 60_000, session: 62 },
+    { at: now - 5 * 60_000, session: 55 },
+  ], () => {
+    assert.equal(consumption(5 * 3600e3, 'session', now).pp, 15);
+  });
+});
+
+test('a window reset is not counted as negative usage', () => {
+  const now = Date.now();
+  withHistory([
+    { at: now - 15 * 60_000, session: 20 },
+    { at: now - 10 * 60_000, session: 100 },  // refilled
+    { at: now - 5 * 60_000, session: 92 },
+  ], () => {
+    const c = consumption(5 * 3600e3, 'session', now);
+    assert.equal(c.pp, 8, 'only the post-reset 8pp drop counts');
+    assert.equal(c.resets, 1, 'the refill is reported, not silently absorbed');
+  });
+});
+
+test('an unobserved stretch is reported as a gap, never as zero burn', () => {
+  const now = Date.now();
+  withHistory([
+    { at: now - 300 * 60_000, session: 80 },   // Mātrā was not running between
+    { at: now - 5 * 60_000, session: 55 },     // these two readings
+  ], () => {
+    const c = consumption(5 * 3600e3, 'session', now);
+    assert.equal(c.pp, 0, 'a 25-point drop across a 5h blind spot is not attributable');
+    assert.ok(c.gapMs > 4 * 3600e3, 'the blind spot must be surfaced so the 0 is readable');
+  });
+});
+
+test('a single sample yields no figure at all rather than a fake zero', () => {
+  const now = Date.now();
+  withHistory([{ at: now - 60_000, session: 70 }], () => {
+    assert.equal(consumption(5 * 3600e3, 'session', now).pp, null);
+  });
 });
