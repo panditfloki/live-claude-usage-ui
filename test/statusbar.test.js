@@ -34,7 +34,7 @@ const geminiData = {
 const now = new Date(2026, 7, 9, 12).getTime();
 
 test('quota label keeps Claude, Codex, and Gemini denominators separate', () => {
-  const out = statusSummary('quota', claudeData, claudeQuota, codexData, geminiData, now);
+  const out = statusSummary('quota', claudeData, claudeQuota, codexData, geminiData, now, { bars: false });
   assert.equal(out.label, 'C 42% · X 31% · G 15%');
   assert.equal(out.codexPrimary.kind, 'primary');
   assert.equal(out.geminiPrimary.kind, 'primary');
@@ -42,17 +42,33 @@ test('quota label keeps Claude, Codex, and Gemini denominators separate', () => 
   assert.equal(out.severity, 'warning');
 });
 
+// Added 2026-08-13 with the bar redesign. Bars fill with what is LEFT, so a
+// full bar is good — the inverse of the bars-off percentages above, which are
+// "used" for Claude/Codex. Claude 42% used therefore reads 58% left.
+test('bars fill with what is LEFT, inverting Claude and Codex "used"', () => {
+  const out = statusSummary('quota', claudeData, claudeQuota, codexData, geminiData, now);
+  assert.match(out.label, /^C 🟩🟩⬜⬜ 58%/, 'Claude 42% used is 58% left');
+  assert.match(out.label, /X 🟩🟩🟩⬜ 69%/, 'Codex 31% used is 69% left');
+  // Gemini already publishes remaining, so it must NOT be inverted again.
+  assert.match(out.label, /G 🟩🟩🟩⬜ 85%/, 'Gemini 85% remaining stays 85%');
+});
+
+test('a provider with no reading collapses to one dash, not an empty bar', () => {
+  const out = statusSummary('quota', claudeData, claudeQuota, { available: false }, { available: false }, now);
+  assert.equal(out.label, 'C 🟩🟩⬜⬜ 58% · X — · G —');
+});
+
 test('thresholds and optional reset-time display are configurable', () => {
   const timed = { limits: [{ kind: 'session', percent: 92, resetsAt: now + 90 * 60_000 }] };
   const out = statusSummary('quota', claudeData, timed, codexData, geminiData, now, {
-    displayMode: 'full', warningThreshold: 90, errorThreshold: 92,
+    displayMode: 'full', warningThreshold: 90, errorThreshold: 92, bars: false,
   });
   assert.match(out.label, /^C 92% \(1h 30m\)/);
   assert.equal(out.severity, 'error');
 });
 
 test('missing Codex or Gemini quota is explicit', () => {
-  const out = statusSummary('quota', claudeData, claudeQuota, { available: false }, { available: false }, now);
+  const out = statusSummary('quota', claudeData, claudeQuota, { available: false }, { available: false }, now, { bars: false });
   assert.equal(out.label, 'C 42% · X — · G —');
   assert.equal(out.warn, false);
 });

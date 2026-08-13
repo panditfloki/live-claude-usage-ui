@@ -2,7 +2,7 @@
   "name": "claude-usage-meter",
   "displayName": "Mātrā — Claude + Codex + Gemini Usage",
   "description": "Live Claude, Codex, and Gemini usage — plan limits, tokens and equivalent API cost in one local dashboard.",
-  "version": "1.4.0",
+  "version": "1.6.0",
   "publisher": "dydxfx",
   "author": {
     "name": "Pandit Floki",
@@ -79,9 +79,17 @@
         },
         "claudeUsage.statusBar.displayMode": {
           "type": "string",
-          "enum": ["compact", "full"],
+          "enum": [
+            "compact",
+            "full"
+          ],
           "default": "compact",
           "description": "Compact shows provider percentages only; full also shows abbreviated quota reset times."
+        },
+        "claudeUsage.statusBar.bars": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw a coloured bar per provider in the status bar. Bars show quota REMAINING, so a full green bar means plenty left. Turn off for percentages only."
         },
         "claudeUsage.statusBar.warningThreshold": {
           "type": "number",
