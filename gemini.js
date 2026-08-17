@@ -444,22 +444,37 @@ async function callAntigravityRpc(method) {
   const ports = listeningPorts(proc.pid);
   if (!ports.length) throw new Error('no listening ports found for the Antigravity process');
 
-  // Phase 1 — find the RPC port WITHOUT revealing the token. All candidates are
-  // raced: probing 30+ ports sequentially at 4s each takes minutes, which is
-  // what made an early console test look like a hang.
-  const probes = [];
+  // Phase 1 — narrow the field WITHOUT revealing the token. Every candidate is
+  // probed in parallel: 30+ sequential 4s probes take minutes, which is what
+  // made an early console test look like a hang.
+  //
+  // ⚠️ Keep ALL the JSON responders, not the first. Measured on this Mac: of 27
+  // candidate ports, SIX speak Connect-RPC and only TWO accept the token — the
+  // rest answer 401/405 even with a valid one. An unauthenticated probe cannot
+  // tell those apart, so picking a single winner here loses the endpoint
+  // roughly two times in three, with no fallback. That regression is what made
+  // the dashboard serve a stale 100% with staleReason "HTTP 401".
+  // Each candidate runs its OWN probe→authenticate chain, and the chains race.
+  // Waiting for every probe to settle before authenticating anything costs the
+  // full timeout of the slowest dead port — measured at 8s here, against ~200ms
+  // for the race. Phase 2 of a losing chain simply never runs.
+  const chains = [];
   for (const port of ports) {
-    for (const scheme of ['https', 'http']) probes.push(probeIsRpc(scheme, port, method));
+    for (const scheme of ['https', 'http']) {
+      chains.push(
+        probeIsRpc(scheme, port, method)
+          // Phase 2 — the token is sent only after THIS port has proved it
+          // speaks Connect-RPC, so a forwarded user port serving HTML
+          // (Mātrā's :4317, Lekhā's :4318) never sees it.
+          .then(() => rpcCall(scheme, port, proc.csrfToken, method)),
+      );
+    }
   }
-  let winner;
   try {
-    winner = await Promise.any(probes);
+    return await Promise.any(chains);
   } catch {
-    throw new Error(`no Connect-RPC endpoint among ${ports.length} ports (token was not sent)`);
+    throw new Error(`no Connect-RPC endpoint accepted the token (${ports.length} ports probed)`);
   }
-
-  // Phase 2 — only now, and only to the one port that answered as Connect-RPC.
-  return rpcCall(winner.scheme, winner.port, proc.csrfToken, method);
 }
 
 // remainingFraction is 0 (empty) .. 1 (full). Reported as-is — see the
