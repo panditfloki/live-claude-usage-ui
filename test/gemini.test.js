@@ -15,6 +15,12 @@ test('gemini model pricing and cost calculations', () => {
   // Standard paid-tier API proxy: $1.50 input + $7.50 output + $0.15 cache.
   assert.equal(c1, 9.15);
 
+  const c37 = costOf('gemini-3.7-flash', 1000000, 1000000, 1000000);
+  assert.equal(c37, 9.15);
+
+  const c37low = costOf('gemini-3.7-flash-low', 1000000, 1000000, 0);
+  assert.equal(c37low, 9);
+
   const c2 = costOf('gemini-3.6-flash-high', 1000000, 1000000, 0);
   assert.equal(c2, 9);
   assert.equal(costOf('gemini-unknown', 1000000, 1000000, 0), null);

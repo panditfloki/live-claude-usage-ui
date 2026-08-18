@@ -24,9 +24,13 @@ const RPC_TIMEOUT_MS = 4_000;
 const PRICING = {
   // Standard paid-tier Gemini Developer API rates, per 1M tokens.
   // These produce an equivalent API-cost proxy; Antigravity itself may be subscription-backed.
+  'gemini-3.7-flash': { in: 1.50, out: 7.50, cache: 0.15 },
   'gemini-3.6-flash': { in: 1.50, out: 7.50, cache: 0.15 },
   'gemini-3.5-flash': { in: 1.50, out: 9.00, cache: 0.15 },
+  'gemini-2.5-pro': { in: 1.25, out: 5.00, cache: 0.3125 },
+  'gemini-2.5-flash': { in: 0.15, out: 0.60, cache: 0.0375 },
   'gemini-2.0-flash': { in: 0.10, out: 0.40, cache: 0.025 },
+  'gemini-2.0-pro': { in: 1.25, out: 5.00, cache: 0.3125 },
   'gemini-1.5-pro': { in: 1.25, out: 5.00, cache: 0.3125 },
   'gemini-1.5-flash': { in: 0.075, out: 0.30, cache: 0.01875 },
 };

@@ -8,7 +8,12 @@ versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.4.0] — 2026-08-12
+## [1.7.2] — 2026-08-18
+
+### Added
+- Pricing support for `gemini-3.7-flash`, `gemini-2.5-pro`, `gemini-2.5-flash`, and `gemini-2.0-pro` in `gemini.js`.
+- Automatic historical spend calculation for previously unpriced Gemini 3.7 sessions across all conversations.
+- Test coverage for Gemini 3.7 Flash and variant pricing tiers.
 
 ### Added
 - One provider refresh now writes one shared cache and redraws both the IDE panel and localhost.
