@@ -3,6 +3,7 @@
 plan.json
 CLAUDE.md
 AGENTS.md
+GEMINI.md
 .gitignore
 
 # Dev-only + repo artifacts

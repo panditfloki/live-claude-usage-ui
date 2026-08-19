@@ -5,9 +5,12 @@
 plan.json
 
 # Workspace glue: an @-import pointing into a private Obsidian vault.
-# Machine-specific, not part of the app.
+# Machine-specific, not part of the app. All three agent adapters point at the
+# same private state — GEMINI.md leaked into a public commit once (2026-08-18,
+# v1.7.1) before this line existed; it is why this comment is this explicit.
 CLAUDE.md
 AGENTS.md
+GEMINI.md
 
 # Local agent plans and project-working adapters are not public product source.
 agents/

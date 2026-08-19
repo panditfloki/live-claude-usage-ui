@@ -24,6 +24,8 @@ your own machine:
 | Costs, tokens, models, projects | **Your** local transcripts, `~/.claude/projects/**/*.jsonl` |
 | Codex tokens, models, sessions, directories | `ccusage codex … --json` over `~/.codex/sessions/**/*.jsonl` |
 | Codex plan limit and reset | Latest local Codex `token_count.rate_limits` record |
+| Gemini quota, tokens, cost | Antigravity's own local Connect-RPC service + its SQLite conversation logs — see *Gemini* below |
+| USD⇄INR conversion (only if you turn on the ₹ toggle) | `open.er-api.com`, the one outbound call this tool makes that isn't to Anthropic |
 
 Your token never leaves your machine, is never logged or written to disk, and is sent nowhere
 except `api.anthropic.com`. Clone it, run it, and you see *your* usage against *your* plan.
@@ -115,6 +117,35 @@ The one thing that *does* self-populate: **usage credits**. `spend` in the API r
 object (`balance` / `used` / `cap` / `auto_reload`). It reads null while credits are disabled;
 enable them and the tiles fill in with no code change.
 
+## Gemini / Antigravity
+
+Reads locally, from two places that need Antigravity to be running at least once:
+
+- **Quota %** — the exact RPC Antigravity's own UI calls
+  (`RetrieveUserQuotaSummary`), reached the same way `quota.js` reaches Claude's:
+  read a credential the running process already holds (its `--csrf_token`,
+  found via `ps`/`lsof`), then call the real local endpoint with it. The token
+  is sent only to a port that has already proven, unauthenticated, that it
+  speaks this RPC — Antigravity forwards other local ports (yours, and this
+  tool's own `:4317`) through the same process, and those answer HTTP 200 too.
+- **Tokens and cost** — decoded from `gen_metadata` in Antigravity's own SQLite
+  conversation logs (`~/.gemini/antigravity-cli/conversations/*.db`), using the
+  protobuf schema recovered from its `language_server` binary.
+
+**macOS and Linux only** (`ps`/`lsof`) — Windows is refused with that reason
+stated up front, never silently reported as zero usage.
+
+## Currency toggle (₹ / $)
+
+Every dollar figure can be shown converted to rupees. The conversion happens
+only at render time — nothing stored is ever rewritten — using a mid-market
+USD→INR rate fetched from `open.er-api.com` (free, no key, no signup) and
+cached for 12 hours, since the upstream itself only publishes once a day. A
+`forexMarkupPercent` in `plan.json` accounts for what your card is actually
+charged over mid-market. A rate that has never been fetched, or has gone
+stale past the cache window, leaves the toggle showing dollars rather than
+converting with a guess.
+
 ## Two parsing traps (both cost real money if you get them wrong)
 
 If you write your own parser for Claude Code transcripts, these will bite you. They bit me.
@@ -137,6 +168,8 @@ that detects which host it is running in. Import them; don't fork them.
 parser.js   local transcripts → costs, tokens, models, projects, heatmap   (no network)
 quota.js    /api/oauth/{usage,profile} → real plan limits                  (soft-fails)
 codex.js    ccusage history + latest local Codex plan limit                (soft-fails)
+gemini.js   Antigravity RPC + SQLite logs → quota, tokens, cost            (soft-fails)
+fx.js       open.er-api.com → USD⇄INR rate, 12h cache                     (soft-fails)
 extension.js  status bar + webview panel
 server.js     the same dashboard over HTTP
 media/dashboard.html   one page, two hosts
